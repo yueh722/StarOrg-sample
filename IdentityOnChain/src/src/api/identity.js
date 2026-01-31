@@ -1,4 +1,4 @@
-// src/utils/api.js
+// src/api/identity.js
 import axios from 'axios';
 
 
@@ -6,16 +6,13 @@ import axios from 'axios';
 //const host = '/api';
 const revokedFlag = ' - #revoked#'
 
- //const hosts = [
- //  'http://localhost:1000',
- // 'http://localhost:1081',
- //  'http://localhost:1082',
- //  'http://localhost:1083'
-//];
-
 const hosts = [
-  'http://localhost:1000'
+   'http://localhost:1000',
+   'http://localhost:2000',
+   'http://localhost:3000',
+   'http://localhost:4000'
 ];
+
 
 // 创建 axios 实例
 const axiosInstance = axios.create();

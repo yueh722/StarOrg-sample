@@ -64,7 +64,7 @@
 </template>
 
 <script>
-import {getDefaultPerson, getNewPerson, isPersonRevokedRemote} from '@/utils/api.js';
+import {getDefaultPerson, getNewPerson, isPersonRevokedRemote} from '@/api/identity.js';
 import {
   localInsertPerson,
   localUpdatePerson,
@@ -72,7 +72,7 @@ import {
   personList,
   cleanupLocalPersonList,
   localGetPersonList
-} from '@/utils/personList';
+} from '@/api/personList';
 import {
   createIdentity,
   getAllIdentity,
@@ -80,7 +80,7 @@ import {
   revokeIdentity,
   searchIdentity,
   updateIdentity
-} from "@/utils/api.js";
+} from "@/api/identity.js";
 
 function getCurrentDate() {
   const today = new Date();

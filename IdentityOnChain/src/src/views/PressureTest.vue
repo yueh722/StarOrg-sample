@@ -29,7 +29,7 @@ import {
   updateIdentity as updatePerson,
   revokeIdentity as deletePerson,
   getDefaultPerson,
-} from '@/utils/api';
+} from '@/api/identity.js';
 
 export default {
   data() {

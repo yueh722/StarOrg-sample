@@ -1,4 +1,4 @@
-// src/utils/personList.js
+// src/api/personList.js
 import person from "@/views/person.vue";
 
 export const personList = []; // 全局人员列表
