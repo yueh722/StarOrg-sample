@@ -11,7 +11,9 @@ export class StreamClient {
     constructor(conn, callbacks = {}) {
         this.conn = conn;
         this.callbacks = {
-            onStatus: () => {},
+            onNodeStatus: () => {},
+            onStorage: () => {},
+            onSetup: () => {},
             onLog: () => {},
             onTx: () => {},
             ...callbacks
@@ -36,25 +38,32 @@ export class StreamClient {
     handleIncomingMessage(message) {
         // 标准JSON-RPC订阅推送格式
         if (message.method === 'stream_subscription' && message.params?.subscription === this.subscriptionId) {
-            const data = message.params.result;
-            switch (data.type) {
-                case 'status':
-                    this.callbacks.onStatus(message.data);
+            const result = message.params.result;
+            //console.log('[StreamClient]:', result)
+            switch (result.type) {
+                case 'node':
+                    this.callbacks.onNodeStatus(result.data);
                     break;
-                case 'log':
-                    this.callbacks.onLog(message.data);
+                case 'storage':
+                    this.callbacks.onStorage(result.data);
+                    break;
+                case 'seetup':
+                    this.callbacks.onSetup(result.data);
                     break;
                 case 'tx':
-                    this.callbacks.onTx(message.data);
+                    this.callbacks.onTx(result.data);
+                    break;
+                case 'log':
+                    this.callbacks.onLog(result.data);
                     break;
                 default:
-                    console.warn('[StreamClient] 未知的推送消息类型:', message.type);
+                    console.warn('[StreamClient] 未知的推送消息类型:', result.type);
             }
         }
     }
 
     /**
-     * 连接建立后自动调用，发起固定订阅（例如订阅app为"myapp"的所有类型）
+     * 连接建立后发起订阅, 接收状态通知和实时数据. app名称可随意
      */
     async onConnected() {
         console.log('[StreamClient] 连接已建立，开始订阅推送');

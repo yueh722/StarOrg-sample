@@ -221,7 +221,7 @@ export class WebSocketConnection {
 
     /**
      * 发送请求并等待响应
-     * @param {string} method - 业务方法名（例如 "Echo"）
+     * @param {string} method - 业务方法名(例如 namespace_MethodName) (注意MethodName首字母要小写)
      * @param {Object} params - 业务参数
      * @returns {Promise<any>} 响应结果
      */
@@ -263,8 +263,7 @@ export class WebSocketConnection {
     async subscribe(namespace, subscriptionType, args = {}) {
         const method = `${namespace}_subscribe`;
         const params = [subscriptionType, args];
-        const subId = await this.sendRequest(method, params);
-        return subId; // 返回 subscription ID
+        return await this.sendRequest(method, params);
     }
     /**
      * 直接发送无响应的消息（例如主动推送）
