@@ -1,4 +1,4 @@
-//connection.js
+//Connection.js
 
 import https from 'https';
 
@@ -16,8 +16,8 @@ export class WebSocketConnection {
         this.options = {
             connectTimeout: 5000,
             econnectInterval: 3000,
-            getToken: () => Math.random().toString(36).slice(2),
-            getClientId: () => `client_${Date.now()}`,
+            getToken: () => {},
+            getClientId: () => {},
             ...options
         };
         this.ws = null; // 实际WebSocket实例
@@ -27,7 +27,6 @@ export class WebSocketConnection {
         this.nextRequestId = 1; // 自增请求ID，用于匹配响应
         this.reconnectTimer = null;
 
-        // 网络事件回调（供业务类订阅）
         this.onConnected = () => {};
         this.onDisconnected = () => {};
         this.onError = (error) => {};
@@ -290,7 +289,6 @@ export class WebSocketConnection {
         this.connectPromise = null;
     }
 
-    // --- 预留的网络事件订阅方法 ---
     SetConnectedCallback(callback) {
         this.onConnected = callback;
     }
@@ -307,7 +305,6 @@ export class WebSocketConnection {
         this.onRawMessage = callback;
     }
 
-    // --- 预留的Token/ClientId替换接口（建议直接在实例化时传入getToken/getClientId）---
     setTokenGenerator(generator) {
         this.options.getToken = generator;
     }
@@ -316,3 +313,4 @@ export class WebSocketConnection {
         this.options.getClientId = generator;
     }
 }
+

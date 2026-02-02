@@ -16,9 +16,11 @@ export class SetupClient {
         this.conn = conn;
         this.methods = this.initSetupMethods();
         // 订阅网络状态事件
-        this.conn.onConnected = () => this.onConnected();
-        this.conn.onDisconnected = () => this.onDisconnected();
-        this.conn.onError = (error) => this.onError(error);
+        this.conn.SetConnectedCallback(this.onConnected);
+        this.conn.SetDisconnectedCallback(this.onDisconnected);
+        this.conn.SetErrorCallback(this.onError);
+
+        this.conn.onConnected();
     }
 
     initSetupMethods() {
@@ -170,15 +172,15 @@ export class SetupClient {
 
 
     // --- 可以被重写的网络事件回调 ---
-    onConnected() {
+    async onConnected() {
         console.log('[SetupClient] 连接已建立');
     }
 
-    onDisconnected() {
+    async onDisconnected() {
         console.log('[SetupClient] 连接已断开');
     }
 
-    onError(error) {
+    async onError(error) {
         console.error('[SetupClient] 连接错误:', error);
     }
 }

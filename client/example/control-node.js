@@ -1,0 +1,32 @@
+import {SetupClient} from "../src/SetupClient.js";
+import {GetConnection} from "./conn.js";
+
+export async function StartAllNodes(){
+    const setupClient = await new SetupClient(await GetConnection())
+    const result = setupClient.StartAllNodes()
+    if (result === true) {
+        console.log('StartAllNodes succeeded')
+    } else {
+        console.log('failure:' + result)
+    }
+}
+
+export async function StopAllNodes(){
+    const setupClient = await new SetupClient(await GetConnection())
+    const result = setupClient.StopAllNodes()
+    if (result === true) {
+        console.log('StopAllNodes succeeded')
+    } else {
+        console.log('failure:' + result)
+    }
+}
+
+export async function ResetNode(nodeName){
+    const setupClient = await new SetupClient(await GetConnection())
+    const result = setupClient.ResetNode(nodeName)
+    if (result === true) {
+        console.log('ResetNode succeeded')
+    } else {
+        console.log('failure:' + result)
+    }
+}

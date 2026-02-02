@@ -5,7 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "dev": "ts-node argNodeInfo.ts"
+    "dev": "ts-node src/argNodeInfo.ts"
   },
   "private": true,
   "dependencies": {

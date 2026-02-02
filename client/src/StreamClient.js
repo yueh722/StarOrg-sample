@@ -21,12 +21,13 @@ export class StreamClient {
 
         this.namespace = 'stream';
         this.subscriptionType = 'subscribeStream';
-        this.subscriptionId = null; // 当前唯一订阅ID
-        // 订阅原始消息，处理服务器主动推送
-        this.conn.onRawMessage = (message) => this.handleIncomingMessage(message);
-        // 订阅网络状态事件
-        this.conn.onConnected = () => this.onConnected();
-        this.conn.onDisconnected = () => this.onDisconnected();
+        this.subscriptionId = null;
+        // set callback routine for receiving notification of live stream.
+        this.conn.SetRawMessageCallback(this.handleIncomingMessage);
+        this.conn.SetConnectedCallback(this.onConnected);
+        this.conn.SetDisconnectedCallback(this.onDisconnected);
+
+        this.conn.onConnected();
     }
 
 
@@ -75,7 +76,7 @@ export class StreamClient {
         }
     }
 
-    onDisconnected() {
+    async onDisconnected() {
         console.log('[StreamClient] 连接已断开，停止接收推送');
         this.subscriptionId = null;
     }
