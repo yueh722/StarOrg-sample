@@ -12,7 +12,6 @@ function makePort(portIndex, nodeIndex){
     ]
 
     return  startPort[portIndex] + nodeIndex * 1000;
-
 }
 
 export async function InitializeChainOnSingleMachine(chainID) {
@@ -21,6 +20,10 @@ export async function InitializeChainOnSingleMachine(chainID) {
     const chainState = await setupClient.MakeChainState()
     if (chainState == null) {
         return 'cannot get chain state'
+    }
+
+    if (chainState.IsInitialized()) {
+        return 'chain has already been initialized!'
     }
 
     let nodeIndex = 0
@@ -33,7 +36,7 @@ export async function InitializeChainOnSingleMachine(chainID) {
             node_id: nodeInfo.node_id,
             node_domain_or_ip: '127.0.0.1',
 
-            // 'node1.com' need to be a valid domain.
+            // 'node1.com' need to be a resolvable domain.
             //node_domain_or_ip: 'node1.com',
 
             p2p_port: makePort(0, nodeIndex),
@@ -58,6 +61,10 @@ export async function InitializeChainOnMultiMachine(chainID) {
         return 'cannot get chain state'
     }
 
+    if (chainState.IsInitialized()) {
+        return 'chain has already been initialized!'
+    }
+
     //build argNodeList
     const argNodeList = chainState.ActivatedNodes().map(nodeInfo => {
         return {
@@ -68,10 +75,10 @@ export async function InitializeChainOnMultiMachine(chainID) {
             // get private ip address of computer that represents current node
             // node_domain_or_ip: chainState.FindHostIpByNodeID(nodeInfo.node_id, '192.168.1'),
 
-            // make sure nodeInfo.node_name is a valid domain
+            // make sure nodeInfo.node_name is a resolvable domain
             node_domain_or_ip: nodeInfo.node_name,
 
-            // 'node1.com' need to be a valid domain.
+            // 'node1.com' need to be a resolvable domain.
             //node_domain_or_ip: 'node1.com',
 
             // no need to set different port number for each node, because master will set it with default number.
@@ -92,6 +99,10 @@ export async function AddChainNodeOnSingleMachine(...nodeNames) {
         return 'cannot get chain state'
     }
 
+    if (!chainState.IsInitialized()) {
+        return 'you need to initialize chain first.'
+    }
+
     let nodeIndex = chainState.InitializedNodes().length
 
     //build argNodeList
@@ -107,7 +118,7 @@ export async function AddChainNodeOnSingleMachine(...nodeNames) {
             node_id: nodeInfo.node_id,
             node_domain_or_ip: '127.0.0.1',
 
-            // 'node2.com' need to be a valid domain.
+            // 'node2.com' need to be a resolvable domain.
             //node_domain_or_ip: 'node2.com',
 
             p2p_port: makePort(0, nodeIndex),
@@ -148,6 +159,10 @@ export async function AddChainNodeOnMultiMachine(...nodeNames) {
         return 'cannot get chain state'
     }
 
+    if (!chainState.IsInitialized()) {
+        return 'you need to initialize chain first.'
+    }
+
     //build argNodeList
     const argNodeList = chainState.UninitializedNodes()
         //make a new nodeList that contains nodeNames
@@ -164,17 +179,17 @@ export async function AddChainNodeOnMultiMachine(...nodeNames) {
             // get private ip address of computer that represents current node
             // node_domain_or_ip: chainState.FindHostIpByNodeID(nodeInfo.node_id, '192.168.1'),
 
-            // make sure nodeInfo.node_name is a valid domain
+            // make sure nodeInfo.node_name is a resolvable domain
             node_domain_or_ip: nodeInfo.node_name,
 
-            // 'node2.com' need to be a valid domain.
+            // 'node2.com' need to be a resolvable domain.
             //node_domain_or_ip: 'node2.com',
 
             is_validator: true,
-        };
+            };
 
-        return argNode;
-    })
+            return argNode;
+        })
 
     if (argNodeList.length === 0) {
         return 'nodes you are trying to add are not found in the uninitialized list, perhaps node name are incorrect or nodes had already initialized before.'

@@ -27,9 +27,9 @@ export class WebSocketConnection {
         this.nextRequestId = 1; // 自增请求ID，用于匹配响应
         this.reconnectTimer = null;
 
-        this.onConnected = () => {};
-        this.onDisconnected = () => {};
-        this.onError = (error) => {};
+        this.onConnected = [];
+        this.onDisconnected = [];
+        this.onError = [];
         this.onRawMessage = (message) => {};
     }
 
@@ -50,7 +50,7 @@ export class WebSocketConnection {
                     await this.tryConnectWithProtocol(protocol);
                     console.log(`成功通过 ${protocol} 协议连接到 ${this.address}`);
                     this.isConnected = true;
-                    this.onConnected();
+                    this.triggerConnected();
                     this.clearReconnectTimer();
                     resolve();
                     return;
@@ -135,7 +135,7 @@ export class WebSocketConnection {
             // 连接关闭回调
             this.ws.onclose = () => {
                 this.isConnected = false;
-                this.onDisconnected();
+                this.triggerDisconnected();
                 this.connectPromise = null;
                 this.startReconnectTimer();
             };
@@ -194,11 +194,10 @@ export class WebSocketConnection {
                     }
                 }
 
-                // 转发未经请求的主动推送消息给业务层
-                this.onRawMessage(message);
+                this.triggerRawMessage(message);
             } catch (error) {
                 console.error('消息解析失败:', error, event.data);
-                this.onError(error);
+                this.triggerError(error);
             }
         };
     }
@@ -290,19 +289,35 @@ export class WebSocketConnection {
     }
 
     SetConnectedCallback(callback) {
-        this.onConnected = callback;
+        this.onConnected.push(callback);
     }
 
     SetDisconnectedCallback(callback) {
-        this.onDisconnected = callback;
+        this.onDisconnected.push(callback);
     }
 
     SetErrorCallback(callback) {
-        this.onError = callback;
+        this.onError.push(callback);
     }
 
     SetRawMessageCallback(callback) {
         this.onRawMessage = callback;
+    }
+
+    triggerConnected() {
+        this.onConnected.forEach(cb => cb());
+    }
+
+    triggerDisconnected() {
+        this.onDisconnected.forEach(cb => cb());
+    }
+
+    triggerError(error) {
+        this.onError.forEach(cb => cb(error));
+    }
+
+    triggerRawMessage(message) {
+        this.onRawMessage.forEach(cb => cb(message));
     }
 
     setTokenGenerator(generator) {

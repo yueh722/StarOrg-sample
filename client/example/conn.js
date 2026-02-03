@@ -1,4 +1,4 @@
-import {generateToken, sharedSecret} from "../src/crypto.js";
+import {generateToken, sharedSecret} from "../src/Crypto.js";
 import {WebSocketConnection} from "../src/Connection.js";
 
 let conn = null;

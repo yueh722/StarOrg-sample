@@ -2,7 +2,7 @@
 
 import {StartStream} from "./stream.js";
 import {StartAllNodes, StopAllNodes} from "./control-node.js";
-import {AddChainNode, AddChainNodeOnSingleMachine, InitializeChainOnSingleMachine, PurgeChain} from "./setup.js";
+import {AddChainNodeOnSingleMachine, InitializeChainOnSingleMachine, PurgeChain} from "./setup.js";
 
 async function DeployFromScratch(){
     await PurgeChain()

@@ -27,7 +27,7 @@ export class StreamClient {
         this.conn.SetConnectedCallback(this.onConnected);
         this.conn.SetDisconnectedCallback(this.onDisconnected);
 
-        this.conn.onConnected();
+        this.onConnected();
     }
 
 

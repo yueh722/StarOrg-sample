@@ -20,7 +20,7 @@ export class SetupClient {
         this.conn.SetDisconnectedCallback(this.onDisconnected);
         this.conn.SetErrorCallback(this.onError);
 
-        this.conn.onConnected();
+        this.onConnected();
     }
 
     initSetupMethods() {

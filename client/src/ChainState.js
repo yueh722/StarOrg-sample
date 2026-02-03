@@ -10,7 +10,9 @@ export class ChainState {
     }
 
     ActivatedNodes() {
-        return (this.rawData.nodes || []).filter(node => node.healthy === true);
+        return (this.rawData.nodes || []).filter(node => {
+            return node?.node_info?.node_id !== '' && node?.node_info?.node_name !== ''
+        });
     }
 
     OfflineNodes() {
@@ -31,7 +33,7 @@ export class ChainState {
 
     FindHostIpByNodeID(nodeID, prefix) {
         try {
-            const node = (this.rawData.nodes || []).find(node => node?.node_info?.nodeID === nodeID);
+            const node = (this.rawData.nodes || []).find(node => node?.node_info?.node_id === nodeID);
             const addresses =  node ? node.host_info?.ip_addresses || [] : null;
             return findIPByPrefix(addresses, prefix);
 
@@ -98,7 +100,7 @@ function findIPByPrefix(addresses, prefix) {
           "WLAN | 192.168.1.11",
         ]
       },
-      "healthy": true,
+      "healthy": true,          // rpc health of Cometbft node
       "last_check": "2026-02-22 15:53:19",
       "started_time": "2026-02-22 15:49:08 2026-02-22 15:49:10",
       "initialized": true
