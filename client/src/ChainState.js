@@ -1,9 +1,16 @@
+import {SetupClient} from "./SetupClient.js";
+import {GetConnection} from "../example/conn.js";
+import log from "loglevel";
+import {getLogLevel, LogType} from "./log.js";
+
 export class ChainState {
     constructor(state) {
+        this.logger = log.getLogger('ChainState');
+        this.logger.setLevel(getLogLevel(LogType.chainStateLog));
+
         try {
             this.rawData = typeof state === 'string' ? JSON.parse(state) : state;
-            console.log(state)
-
+            this.logger.info(state)
         }catch (error) {
             console.error('Invalid JSON:', error);
         }
@@ -31,6 +38,14 @@ export class ChainState {
         return (this.rawData.nodes || []).filter(node => node.initialized !== true);
     }
 
+    GetNodeIDsByName(...nodeNames) {
+        return this.AllNodes().filter(node => {
+                return nodeNames.some(item => item.includes(node.node_info.node_name))
+            }).map(node => {
+                return node.node_info.node_id
+            })
+    }
+
     FindHostIpByNodeID(nodeID, prefix) {
         try {
             const node = (this.rawData.nodes || []).find(node => node?.node_info?.node_id === nodeID);
@@ -56,6 +71,12 @@ export class ChainState {
     IsInitialized() {
         return this.rawData.initialized_time > 0;
     }
+}
+
+export function NodesToNodeIDs(nodes) {
+    return nodes.map(node => {
+        return node.node_info.node_id
+    })
 }
 
 function findIPByPrefix(addresses, prefix) {

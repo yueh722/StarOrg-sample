@@ -29,11 +29,11 @@ export async function InitializeChainOnSingleMachine(chainID) {
     let nodeIndex = 0
 
     //build argNodeList
-    const argNodeList = chainState.ActivatedNodes().map(nodeInfo => {
+    const argNodeList = chainState.ActivatedNodes().map(node => {
 
         const argNode = {
-            node_name: nodeInfo.node_name,
-            node_id: nodeInfo.node_id,
+            node_name: node.node_info.node_name,
+            node_id: node.node_info.node_id,
             node_domain_or_ip: '127.0.0.1',
 
             // 'node1.com' need to be a resolvable domain.
@@ -66,17 +66,17 @@ export async function InitializeChainOnMultiMachine(chainID) {
     }
 
     //build argNodeList
-    const argNodeList = chainState.ActivatedNodes().map(nodeInfo => {
+    const argNodeList = chainState.ActivatedNodes().map(node => {
         return {
-            node_name: nodeInfo.node_name,
-            node_id: nodeInfo.node_id,
+            node_name: node.node_info.node_name,
+            node_id: node.node_info.node_id,
 
             // set nodeIp
             // get private ip address of computer that represents current node
-            // node_domain_or_ip: chainState.FindHostIpByNodeID(nodeInfo.node_id, '192.168.1'),
+            // node_domain_or_ip: chainState.FindHostIpByNodeID(node.node_info.node_id, '192.168.1'),
 
-            // make sure nodeInfo.node_name is a resolvable domain
-            node_domain_or_ip: nodeInfo.node_name,
+            // make sure node.node_info.node_name is a resolvable domain
+            node_domain_or_ip: node.node_info.node_name,
 
             // 'node1.com' need to be a resolvable domain.
             //node_domain_or_ip: 'node1.com',
@@ -108,14 +108,14 @@ export async function AddChainNodeOnSingleMachine(...nodeNames) {
     //build argNodeList
     const argNodeList = chainState.UninitializedNodes()
         //make a new nodeList that contains nodeNames
-        .filter(nodeInfo => {
-            return nodeNames.some(item => item.includes(nodeInfo.node_name))
+        .filter(node => {
+            return nodeNames.some(item => item.includes(node.node_info.node_name))
         })
         //build a argNodeList from a list of nodeInfo
-        .map(nodeInfo => {
+        .map(node => {
             const argNode = {
-            node_name: nodeInfo.node_name,
-            node_id: nodeInfo.node_id,
+            node_name: node.node_info.node_name,
+            node_id: node.node_info.node_id,
             node_domain_or_ip: '127.0.0.1',
 
             // 'node2.com' need to be a resolvable domain.
@@ -139,7 +139,7 @@ export async function AddChainNodeOnSingleMachine(...nodeNames) {
 
     for (const argNode of argNodeList) {
         const res = await setupClient.AddChainNode(argNode)
-        if (res === false) {
+        if (res.success === false) {
             return res
         }
         console.info('added node', argNode.node_name)
@@ -166,29 +166,27 @@ export async function AddChainNodeOnMultiMachine(...nodeNames) {
     //build argNodeList
     const argNodeList = chainState.UninitializedNodes()
         //make a new nodeList that contains nodeNames
-        .filter(nodeInfo => {
-            return nodeNames.some(item => item.includes(nodeInfo.node_name))
+        .filter(node => {
+            return nodeNames.some(item => item.includes(node.node_info.node_name))
         })
         //build a argNodeList from a list of nodeInfo
-        .map(nodeInfo => {
-            const argNode = {
-            node_name: nodeInfo.node_name,
-            node_id: nodeInfo.node_id,
+        .map(node => {
+            return {
+                node_name: node.node_info.node_name,
+                node_id: node.node_info.node_id,
 
-            // set nodeIp
-            // get private ip address of computer that represents current node
-            // node_domain_or_ip: chainState.FindHostIpByNodeID(nodeInfo.node_id, '192.168.1'),
+                // set nodeIp
+                // get private ip address of computer that represents current node
+                // node_domain_or_ip: chainState.FindHostIpByNodeID(node.node_info.node_id, '192.168.1'),
 
-            // make sure nodeInfo.node_name is a resolvable domain
-            node_domain_or_ip: nodeInfo.node_name,
+                // make sure node.node_info.node_name is a resolvable domain
+                node_domain_or_ip: node.node_info.node_name,
 
-            // 'node2.com' need to be a resolvable domain.
-            //node_domain_or_ip: 'node2.com',
+                // 'node2.com' need to be a resolvable domain.
+                //node_domain_or_ip: 'node2.com',
 
-            is_validator: true,
+                is_validator: true,
             };
-
-            return argNode;
         })
 
     if (argNodeList.length === 0) {
@@ -199,7 +197,7 @@ export async function AddChainNodeOnMultiMachine(...nodeNames) {
 
     for (const argNode of argNodeList) {
         const res = await setupClient.AddChainNode(argNode)
-        if (res === false) {
+        if (res.success === false) {
             return res
         }
         console.info('added node', argNode.node_name)
@@ -209,9 +207,13 @@ export async function AddChainNodeOnMultiMachine(...nodeNames) {
     return succeedCount === nodeNames.length
 }
 
+export async function StartInitializedNodes() {
+    const setupClient = await new SetupClient(await GetConnection())
+    return await setupClient.StartAllInitializedNodes()
+}
 
 export async function PurgeChain() {
     const setupClient = await new SetupClient(await GetConnection())
     const result = await setupClient.PurgeChain()
-    console.log(result)
+    return result
 }

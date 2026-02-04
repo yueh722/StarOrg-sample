@@ -3,9 +3,9 @@ import {GetConnection} from "./conn.js";
 
 export async function StartAllNodes(){
     const setupClient = await new SetupClient(await GetConnection())
-    const result = setupClient.StartAllNodes()
-    if (result === true) {
-        console.log('StartAllNodes succeeded')
+    const result = await setupClient.StartAllInitializedNodes()
+    if (result.success === true) {
+        console.log('StartAllInitializedNodes succeeded')
     } else {
         console.log('failure:' + result)
     }
@@ -13,8 +13,8 @@ export async function StartAllNodes(){
 
 export async function StopAllNodes(){
     const setupClient = await new SetupClient(await GetConnection())
-    const result = setupClient.StopAllNodes()
-    if (result === true) {
+    const result = await setupClient.StopAllNodes()
+    if (result.success === true) {
         console.log('StopAllNodes succeeded')
     } else {
         console.log('failure:' + result)
@@ -23,8 +23,8 @@ export async function StopAllNodes(){
 
 export async function ResetNode(nodeName){
     const setupClient = await new SetupClient(await GetConnection())
-    const result = setupClient.ResetNode(nodeName)
-    if (result === true) {
+    const result = await setupClient.ResetNode(nodeName)
+    if (result.success === true) {
         console.log('ResetNode succeeded')
     } else {
         console.log('failure:' + result)

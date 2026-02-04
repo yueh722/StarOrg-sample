@@ -1,6 +1,8 @@
 //SetupClient.js
 
-import {ChainState} from "./ChainState.js";
+import {ChainState, NodesToNodeIDs} from "./ChainState.js";
+import log from "loglevel";
+import {getLogLevel, LogType} from "./log.js";
 
 const NodeStart    = "@start"
 const NodeStop     = "@stop"
@@ -13,6 +15,9 @@ export class SetupClient {
      * @param {WebSocketConnection} conn - 已初始化的连接实例
      */
     constructor(conn) {
+        this.logger = log.getLogger('SetupClient');
+        this.logger.setLevel(getLogLevel(LogType.setupLog));
+
         this.conn = conn;
         this.methods = this.initSetupMethods();
         // 订阅网络状态事件
@@ -52,7 +57,7 @@ export class SetupClient {
         if (result.success) {
             return new ChainState(JSON.stringify(result.data, null, 2));
         }
-        console.error('cannot get chain state from remote!')
+        this.logger.error('cannot get chain state from remote!')
         return new ChainState();
     }
 
@@ -78,11 +83,8 @@ export class SetupClient {
         }
 
         const result = await this.callMethod('BroadcastInitializeChainNode', chainID, argNodes);
-        console.log("result of initialize-chain:", result);
-        if (result.success) {
-            return true
-        }
-        return result.error;
+        this.logger.log("result of initialize-chain:", result);
+        return result
     }
 
     async AddChainNode(argNode) {
@@ -97,62 +99,70 @@ export class SetupClient {
         }
 
         const result = await this.callMethod('BroadcastAddChainNode', argNode);
-        console.log("result of add-node:", result);
-        if (result.success) {
-            return true
-        }
-        return result.error;
+        this.logger.log("result of add-node:", result);
+        return result
+
     }
 
-    async ControlNode(nodeIDs, action) {
+    async ControlNode(action, nodeIDs) {
 
-        const ctlNodes = nodeIDs.map(nodeID => ({
-            node_id: nodeID,
-            action: action
-        }))
+        const ctlNodes = nodeIDs.map(nodeID => {
+            return {
+                node_id: nodeID,
+                action: action
+            }
+        })
 
         const result = await this.callMethod('ControlNode', ctlNodes);
-        console.log("result of control-node:", result);
-        if (result.success) {
-            return true
-        }
-        return result.error;
+        this.logger.log("result of control-node:", result);
+        return result;
     }
 
     //single operation
     async StartNode(...nodeIDs) {
-        return await this.ControlNode(...nodeIDs, NodeStart);
+        return await this.ControlNode(NodeStart, [...nodeIDs]);
     }
 
     async StopNode(...nodeIDs) {
-        return await this.ControlNode(...nodeIDs, NodeStop);
+        return await this.ControlNode(NodeStop, [...nodeIDs]);
     }
 
     async ReStartNode(...nodeIDs) {
-        return await this.ControlNode(...nodeIDs, NodeRestart);
+        return await this.ControlNode(NodeRestart, [...nodeIDs]);
     }
 
     async ResetNode(...nodeIDs) {
-        return await this.ControlNode(...nodeIDs, NodeReset);
+        return await this.ControlNode(NodeReset, [...nodeIDs]);
     }
 
 
     //batch operation
     async ControlAllNodes(action) {
         const chainState = await this.MakeChainState();
-        return await this.ControlNode(chainState.ActivatedNodes(), action);
+        const nodeIDs = NodesToNodeIDs(chainState.ActivatedNodes())
+        return await this.ControlNode(action, nodeIDs);
     }
 
-    async StartAllNodes() {
-        return await this.ControlAllNodes(NodeStart);
+    // start all nodes that had already been initialized.
+    async StartAllInitializedNodes() {
+        const chainState = await this.MakeChainState();
+        const nodeIDs = NodesToNodeIDs(chainState.InitializedNodes())
+        return await this.ControlNode(NodeStart, nodeIDs);
     }
 
+    // stop all running nodes.
     async StopAllNodes() {
         return await this.ControlAllNodes(NodeStop);
     }
 
+    // stop all running nodes and start all initialized nodes.
     async ReStartAllNodes() {
-        return await this.ControlAllNodes(NodeRestart);
+        let result = await this.StopAllNodes()
+        if (result.success !== true) {
+            return result
+        }
+
+        return await this.StartAllInitializedNodes()
     }
 
     async PurgeChain() {
@@ -162,25 +172,21 @@ export class SetupClient {
         }
 
         const result = await this.callMethod('BroadcastPurgeChainNode', {});
-        console.log("result of purge-chain:", result);
-        if (result.success) {
-            return true
-        }
-
-        return result.error;
+        this.logger.log("result of purge-chain:", result);
+        return result;
     }
 
 
     // --- 可以被重写的网络事件回调 ---
     async onConnected() {
-        console.log('[SetupClient] 连接已建立');
+        this.logger.log('[SetupClient] 连接已建立');
     }
 
     async onDisconnected() {
-        console.log('[SetupClient] 连接已断开');
+        this.logger.log('[SetupClient] 连接已断开');
     }
 
     async onError(error) {
-        console.error('[SetupClient] 连接错误:', error);
+        this.logger.error('[SetupClient] 连接错误:', error);
     }
 }

@@ -1,6 +1,8 @@
 //Connection.js
 
 import https from 'https';
+import log from "loglevel";
+import {getLogLevel, LogType} from "./log.js";
 
 export class WebSocketConnection {
     /**
@@ -12,6 +14,9 @@ export class WebSocketConnection {
      * @param {number} [options.reconnectInterval=3000] - 断线自动重连间隔(ms)，默认3000
      */
     constructor(address, options = {}) {
+        this.logger = log.getLogger('WebSocketConnection');
+        this.logger.setLevel(getLogLevel(LogType.connectionLog));
+
         this.address = address;
         this.options = {
             connectTimeout: 5000,
@@ -317,7 +322,7 @@ export class WebSocketConnection {
     }
 
     triggerRawMessage(message) {
-        this.onRawMessage.forEach(cb => cb(message));
+        this.onRawMessage(message);
     }
 
     setTokenGenerator(generator) {
