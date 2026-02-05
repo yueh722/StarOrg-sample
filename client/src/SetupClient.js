@@ -104,7 +104,7 @@ export class SetupClient {
 
     }
 
-    async ControlNode(action, nodeIDs) {
+    async ControlNode(action, ...nodeIDs) {
 
         const ctlNodes = nodeIDs.map(nodeID => {
             return {
@@ -120,19 +120,19 @@ export class SetupClient {
 
     //single operation
     async StartNode(...nodeIDs) {
-        return await this.ControlNode(NodeStart, [...nodeIDs]);
+        return await this.ControlNode(NodeStart, ...nodeIDs);
     }
 
     async StopNode(...nodeIDs) {
-        return await this.ControlNode(NodeStop, [...nodeIDs]);
+        return await this.ControlNode(NodeStop, ...nodeIDs);
     }
 
     async ReStartNode(...nodeIDs) {
-        return await this.ControlNode(NodeRestart, [...nodeIDs]);
+        return await this.ControlNode(NodeRestart, ...nodeIDs);
     }
 
     async ResetNode(...nodeIDs) {
-        return await this.ControlNode(NodeReset, [...nodeIDs]);
+        return await this.ControlNode(NodeReset, ...nodeIDs);
     }
 
 
@@ -140,14 +140,14 @@ export class SetupClient {
     async ControlAllNodes(action) {
         const chainState = await this.MakeChainState();
         const nodeIDs = NodesToNodeIDs(chainState.ActivatedNodes())
-        return await this.ControlNode(action, nodeIDs);
+        return await this.ControlNode(action, ...nodeIDs);
     }
 
     // start all nodes that had already been initialized.
     async StartAllInitializedNodes() {
         const chainState = await this.MakeChainState();
         const nodeIDs = NodesToNodeIDs(chainState.InitializedNodes())
-        return await this.ControlNode(NodeStart, nodeIDs);
+        return await this.ControlNode(NodeStart, ...nodeIDs);
     }
 
     // stop all running nodes.

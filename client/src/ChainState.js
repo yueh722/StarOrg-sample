@@ -16,26 +16,31 @@ export class ChainState {
         }
     }
 
+    // return an array of all online nodes
     ActivatedNodes() {
         return (this.rawData.nodes || []).filter(node => {
-            return node?.node_info?.node_id !== '' && node?.node_info?.node_name !== ''
+            return node?.node_info?.node_id !== '' && node?.node_info?.node_name !== '' && node.online === true
         });
     }
 
+    // return an array of all offline nodes
     OfflineNodes() {
-        return (this.rawData.nodes || []).filter(node => node.healthy !== true);
+        return (this.rawData.nodes || []).filter(node => node.online !== true);
     }
 
+    // return an array of all nodes
     AllNodes() {
         return this.rawData.nodes || [];
     }
 
+    // return an array of node which are initialized and online
     InitializedNodes() {
-        return (this.rawData.nodes || []).filter(node => node.initialized === true);
+        return (this.rawData.nodes || []).filter(node => node.initialized === true && node.online === true);
     }
 
+    // return an array of node which are uninitialized and online
     UninitializedNodes() {
-        return (this.rawData.nodes || []).filter(node => node.initialized !== true);
+        return (this.rawData.nodes || []).filter(node => node.initialized !== true && node.online === true);
     }
 
     GetNodeIDsByName(...nodeNames) {
@@ -122,6 +127,7 @@ function findIPByPrefix(addresses, prefix) {
         ]
       },
       "healthy": true,          // rpc health of Cometbft node
+      "online": true,          // indicate if this node is online or offline.
       "last_check": "2026-02-22 15:53:19",
       "started_time": "2026-02-22 15:49:08 2026-02-22 15:49:10",
       "initialized": true

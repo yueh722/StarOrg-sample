@@ -34,10 +34,11 @@ async function RestartAllNodes(){
     await StartAllNodes()
 }
 
-//start
-await StartStream()
 
-await StopAllNodes()
+//start
+//await StartStream()
+
+//await StopAllNodes()
 
 //deploy chain
 //await DeployFromScratch()
