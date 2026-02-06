@@ -35,8 +35,13 @@ async function RestartAllNodes(){
 }
 
 
+
+//DeployFromScratch()
+
 //start
-//await StartStream()
+await StartStream()
+
+await RestartAllNodes()
 
 //await StopAllNodes()
 

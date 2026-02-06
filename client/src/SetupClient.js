@@ -9,7 +9,6 @@ const NodeStop     = "@stop"
 const NodeRestart  = "@restart"
 const NodeReset    = "@reset"
 
-
 export class SetupClient {
     /**
      * @param {WebSocketConnection} conn - 已初始化的连接实例
@@ -35,6 +34,7 @@ export class SetupClient {
             "BroadcastAddChainNode",
             "ControlNode",
             "BroadcastPurgeChainNode",
+            "GetHistoryOfCommand",
         ]
 
         let methods = new Map()
@@ -51,6 +51,11 @@ export class SetupClient {
         return this.conn.callMethod(this.methods.get(method), ...params);
     }
 
+    async GetHistoryOfCommand(...nodeIDs){
+        const result = await this.callMethod('GetHistoryOfCommand');
+        this.logger.info('result of History of Command:', result);
+        return result;
+    }
 
     async MakeChainState() {
         const result = await this.callMethod('GetChainState');
@@ -83,7 +88,7 @@ export class SetupClient {
         }
 
         const result = await this.callMethod('BroadcastInitializeChainNode', chainID, argNodes);
-        this.logger.log("result of initialize-chain:", result);
+        this.logger.info("result of initialize-chain:", result);
         return result
     }
 
@@ -99,7 +104,7 @@ export class SetupClient {
         }
 
         const result = await this.callMethod('BroadcastAddChainNode', argNode);
-        this.logger.log("result of add-node:", result);
+        this.logger.info("result of add-node:", result);
         return result
 
     }
@@ -114,7 +119,7 @@ export class SetupClient {
         })
 
         const result = await this.callMethod('ControlNode', ctlNodes);
-        this.logger.log("result of control-node:", result);
+        this.logger.info("result of control-node:", result);
         return result;
     }
 
@@ -172,21 +177,16 @@ export class SetupClient {
         }
 
         const result = await this.callMethod('BroadcastPurgeChainNode', {});
-        this.logger.log("result of purge-chain:", result);
+        this.logger.info("result of purge-chain:", result);
         return result;
     }
 
-
-    // --- 可以被重写的网络事件回调 ---
-    async onConnected() {
-        this.logger.log('[SetupClient] 连接已建立');
+    onConnected = async() => {
     }
 
-    async onDisconnected() {
-        this.logger.log('[SetupClient] 连接已断开');
+    onDisconnected = async() => {
     }
 
-    async onError(error) {
-        this.logger.error('[SetupClient] 连接错误:', error);
+    onError = async(error) => {
     }
 }

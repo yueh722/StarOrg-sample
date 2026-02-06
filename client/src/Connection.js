@@ -20,7 +20,7 @@ export class WebSocketConnection {
         this.address = address;
         this.options = {
             connectTimeout: 5000,
-            econnectInterval: 3000,
+            reconnectInterval: 3000,
             getToken: () => {},
             getClientId: () => {},
             ...options
@@ -154,6 +154,7 @@ export class WebSocketConnection {
                 console.log('[WebSocketConnection] 断线，尝试自动重连...');
                 this.connect().catch(() => {
                     // 重连失败，等待下次尝试
+
                 });
             }
         }, this.options.reconnectInterval);

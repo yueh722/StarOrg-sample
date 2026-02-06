@@ -22,6 +22,8 @@ export class StreamClient {
             onSetup: () => {},
             onLog: () => {},
             onTx: () => {},
+            onProcess: () => {},
+            onAgent: () => {},
             ...callbacks
         };
 
@@ -33,7 +35,7 @@ export class StreamClient {
         this.conn.SetConnectedCallback(this.onConnected);
         this.conn.SetDisconnectedCallback(this.onDisconnected);
 
-        this.onConnected();
+        this.onConnected()
     }
 
 
@@ -42,11 +44,10 @@ export class StreamClient {
      * @private
      * @param {Object} message - 推送消息
      */
-    handleIncomingMessage(message) {
+    handleIncomingMessage = (message) => {
         // 标准JSON-RPC订阅推送格式
         if (message.method === 'stream_subscription' && message.params?.subscription === this.subscriptionId) {
             const result = message.params.result;
-            this.logger.info('[StreamClient] received message, result:', result)
             switch (result.type) {
                 case 'node':
                     this.callbacks.onNodeStatus(result.data);
@@ -54,7 +55,7 @@ export class StreamClient {
                 case 'storage':
                     this.callbacks.onStorage(result.data);
                     break;
-                case 'seetup':
+                case 'setup':
                     this.callbacks.onSetup(result.data);
                     break;
                 case 'tx':
@@ -62,6 +63,12 @@ export class StreamClient {
                     break;
                 case 'log':
                     this.callbacks.onLog(result.data);
+                    break;
+                case 'process':
+                    this.callbacks.onProcess(result.data);
+                    break;
+                case 'agent':
+                    this.callbacks.onAgent(result.data);
                     break;
                 default:
                     this.logger.warn('[StreamClient] 未知的推送消息类型:', result.type);
@@ -72,18 +79,22 @@ export class StreamClient {
     /**
      * 连接建立后发起订阅, 接收状态通知和实时数据. app名称可随意
      */
-    async onConnected() {
-        this.logger.log('[StreamClient] 连接已建立，开始订阅推送');
+    onConnected = async() => {
+        if (!this.conn.isConnected){
+            return
+        }
+
+        this.logger.info('[StreamClient] 连接已建立，开始订阅推送');
         try {
             this.subscriptionId = await this.conn.subscribe(this.namespace, this.subscriptionType, {app: 'myapp'});
-            this.logger.log('[StreamClient] 订阅成功，订阅ID:', this.subscriptionId);
+            this.logger.info('[StreamClient] 订阅成功，订阅ID:', this.subscriptionId);
         } catch (error) {
             this.logger.error('[StreamClient] 订阅失败:', error.message);
         }
     }
 
-    async onDisconnected() {
-        this.logger.log('[StreamClient] 连接已断开，停止接收推送');
+    onDisconnected = async() => {
+        this.logger.info('[StreamClient] 连接已断开，停止接收推送');
         this.subscriptionId = null;
     }
 }
