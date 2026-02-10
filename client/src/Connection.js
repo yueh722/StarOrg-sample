@@ -3,6 +3,7 @@
 import https from 'https';
 import log from "loglevel";
 import {getLogLevel, LogType} from "./log.js";
+import {makeError, makeSuccess} from "./SetupClient.js";
 
 export class WebSocketConnection {
     /**
@@ -211,15 +212,9 @@ export class WebSocketConnection {
     async callMethod(method, ...params) {
         try {
             const result = await this.sendRequest(method, params);
-            return {
-                success: true,
-                data: result
-            };
+            return makeSuccess(result);
         } catch (error) {
-            return {
-                success: false,
-                error: error.message
-            };
+            return makeError(error.message);
         }
     }
 

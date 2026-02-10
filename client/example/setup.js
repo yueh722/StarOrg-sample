@@ -1,5 +1,5 @@
 import {ChainState} from "../src/ChainState.js";
-import {SetupClient} from "../src/SetupClient.js";
+import {makeError, makeSuccess, SetupClient} from "../src/SetupClient.js";
 import {GetConnection} from "./conn.js";
 
 
@@ -19,11 +19,11 @@ export async function InitializeChainOnSingleMachine(chainID) {
 
     const chainState = await setupClient.MakeChainState()
     if (chainState == null) {
-        return 'cannot get chain state'
+        return makeError('cannot get chain state')
     }
 
     if (chainState.IsInitialized()) {
-        return 'chain has already been initialized!'
+        return makeError('chain has already been initialized!')
     }
 
     let nodeIndex = 0
@@ -37,7 +37,7 @@ export async function InitializeChainOnSingleMachine(chainID) {
 
 
             //node_domain_or_ip: '127.0.0.1',
-            node_domain_or_ip: 'node.node_info.node_name',
+            node_domain_or_ip: node.node_info.node_name,
 
             // 'node1.com' need to be a resolvable domain.
             //node_domain_or_ip: 'node1.com',
@@ -52,6 +52,8 @@ export async function InitializeChainOnSingleMachine(chainID) {
         return argNode;
     })
 
+    console.info("Initialized chainState: ", argNodeList)
+
     return await setupClient.InitializeChainNode(chainID, argNodeList)
 }
 
@@ -61,11 +63,11 @@ export async function InitializeChainOnMultiMachine(chainID) {
 
     const chainState = await setupClient.MakeChainState()
     if (chainState == null) {
-        return 'cannot get chain state'
+        return makeError('cannot get chain state')
     }
 
     if (chainState.IsInitialized()) {
-        return 'chain has already been initialized!'
+        return makeError('chain has already been initialized!')
     }
 
     //build argNodeList
@@ -99,11 +101,11 @@ export async function AddChainNodeOnSingleMachine(...nodeNames) {
 
     const chainState = await setupClient.MakeChainState()
     if (chainState == null) {
-        return 'cannot get chain state'
+        return makeError('cannot get chain state.')
     }
 
     if (!chainState.IsInitialized()) {
-        return 'you need to initialize chain first.'
+        return makeError('you need to initialize chain first.')
     }
 
     let nodeIndex = chainState.InitializedNodes().length
@@ -135,7 +137,7 @@ export async function AddChainNodeOnSingleMachine(...nodeNames) {
     })
 
     if (argNodeList.length === 0) {
-        return 'nodes you are trying to add are not found in the uninitialized list, perhaps node name are incorrect or nodes had already initialized before.'
+        return makeError('nodes you are trying to add are not found in the uninitialized list, perhaps node name are incorrect or nodes had already initialized before.')
     }
 
     let succeedCount = 0;
@@ -159,11 +161,11 @@ export async function AddChainNodeOnMultiMachine(...nodeNames) {
 
     const chainState = await setupClient.MakeChainState()
     if (chainState == null) {
-        return 'cannot get chain state'
+        return makeError('cannot get chain state')
     }
 
     if (!chainState.IsInitialized()) {
-        return 'you need to initialize chain first.'
+        return makeError('you need to initialize chain first.')
     }
 
     //build argNodeList
@@ -193,7 +195,7 @@ export async function AddChainNodeOnMultiMachine(...nodeNames) {
         })
 
     if (argNodeList.length === 0) {
-        return 'nodes you are trying to add are not found in the uninitialized list, perhaps node name are incorrect or nodes had already initialized before.'
+        return makeError('nodes you are trying to add are not found in the uninitialized list, perhaps node name are incorrect or nodes had already initialized before.')
     }
 
     let succeedCount = 0;
@@ -217,6 +219,20 @@ export async function StartInitializedNodes() {
 
 export async function PurgeChain() {
     const setupClient = await new SetupClient(await GetConnection())
-    const result = await setupClient.PurgeChain()
+    return await setupClient.PurgeChain()
+}
+
+export async function GetSetupCommandHistory() {
+    const setupClient = await new SetupClient(await GetConnection())
+    const result = await setupClient.GetHistoryOfCommand('')
+    console.info('result of History of Command:', result)
     return result
+}
+
+export async function GetServerAddrOfMasters(){
+    const setupClient = await new SetupClient(await GetConnection())
+    const chainState = await setupClient.MakeChainState()
+    const result = chainState.ActivatedWebServiceServers()
+    console.info('list of webserver address:', result)
+    return makeSuccess(result)
 }

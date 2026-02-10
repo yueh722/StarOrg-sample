@@ -52,7 +52,7 @@ export class SetupClient {
     }
 
     async GetHistoryOfCommand(...nodeIDs){
-        const result = await this.callMethod('GetHistoryOfCommand');
+        const result = await this.callMethod('GetHistoryOfCommand', ...nodeIDs);
         this.logger.info('result of History of Command:', result);
         return result;
     }
@@ -132,7 +132,7 @@ export class SetupClient {
         return await this.ControlNode(NodeStop, ...nodeIDs);
     }
 
-    async ReStartNode(...nodeIDs) {
+    async RestartNode(...nodeIDs) {
         return await this.ControlNode(NodeRestart, ...nodeIDs);
     }
 
@@ -161,19 +161,14 @@ export class SetupClient {
     }
 
     // stop all running nodes and start all initialized nodes.
-    async ReStartAllNodes() {
-        let result = await this.StopAllNodes()
-        if (result.success !== true) {
-            return result
-        }
-
-        return await this.StartAllInitializedNodes()
+    async RestartAllNodes() {
+        return await this.ControlAllNodes(NodeRestart)
     }
 
     async PurgeChain() {
         const chainState = await this.MakeChainState();
         if (!chainState.IsInitialized()){
-            return '{"error": "chain has not initialized, no need to reset"}'
+            return makeError('chain has not been initialized, no need to reset;')
         }
 
         const result = await this.callMethod('BroadcastPurgeChainNode', {});
@@ -189,4 +184,12 @@ export class SetupClient {
 
     onError = async(error) => {
     }
+}
+
+export function makeSuccess(message){
+    return {success: true, data: message};
+}
+
+export function makeError(message){
+    return {success: false, error: message};
 }

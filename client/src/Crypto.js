@@ -32,8 +32,25 @@ function generateToken(clientID, secret) {
     return `${ts}:${sig}`;
 }
 
+function generateRandomString(length = 8) {
+    if (length <= 0 || !Number.isInteger(length)) {
+        throw new Error('长度必须是正整数');
+    }
+
+    const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+    let result = '';
+    const charsLength = chars.length;
+
+    for (let i = 0; i < length; i++) {
+        const randomIndex = Math.floor(Math.random() * charsLength);
+        result += chars.charAt(randomIndex);
+    }
+    return result;
+}
+
 export {
     generateToken,
     sharedSecret,
-    signature
+    signature,
+    generateRandomString
 };

@@ -1,4 +1,4 @@
-import {SetupClient} from "./SetupClient.js";
+import {makeSuccess, SetupClient} from "./SetupClient.js";
 import {GetConnection} from "../example/conn.js";
 import log from "loglevel";
 import {getLogLevel, LogType} from "./log.js";
@@ -66,11 +66,13 @@ export class ChainState {
      * 返回所有 activated（healthy）且 WebServiceListenAddr 非空的节点
      * @param {Array} nodes - 可选，若不传则使用 activatedNodes
      */
-    ActivatedWebServiceServers(nodes) {
-        return nodes.filter(node => {
-            const addr = node.node_info?.web_service_listen_addr;
-            return addr && typeof addr === 'string' && addr.trim() !== '';
+    ActivatedWebServiceServers() {
+        const data = this.ActivatedNodes().map(node => {
+            const listen_addr = node.node_info?.web_service_listen_addr;
+            return updateListenAddressHost(listen_addr, node.node_info?.node_address)
         });
+
+        return makeSuccess(data)
     }
 
     IsInitialized() {
@@ -102,6 +104,33 @@ function findIPByPrefix(addresses, prefix) {
         }
     }
     return '';
+}
+
+/**
+ * 更新监听地址的 host 部分为服务器地址
+ * @param {string} listenAddress - 原始监听地址（支持 URL 格式或 IP:端口 格式）
+ * @param {string} serverAddress - 目标服务器地址（如 "192.168.1.100" 或 "example.com"）
+ * @returns {string} 更新后的完整地址
+ */
+function updateListenAddressHost(listenAddress, serverAddress) {
+    // 场景1：处理 URL 格式（如 http://0.0.0.0:3000/api、ws://localhost:8080）
+    if (listenAddress.includes('://')) {
+        try {
+            const url = new URL(listenAddress);
+            url.hostname = serverAddress;
+            return url.href;
+        } catch (e) {
+            console.warn('URL 格式解析失败，尝试按 IP:端口 处理:', e);
+        }
+    }
+
+    // 场景2：处理 IP:端口 格式（如 0.0.0.0:3000、127.0.0.1:8080）
+    const [originalHost, port] = listenAddress.split(':');
+    if (port) {
+        return `${serverAddress}:${port}`;
+    }
+
+    return serverAddress;
 }
 
 /*
