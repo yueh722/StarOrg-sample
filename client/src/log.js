@@ -8,9 +8,9 @@ export const LogType = {
 
 let LogSwitch = new Map([
     [LogType.chainStateLog, false],
-    [LogType.connectionLog, true],
+    [LogType.connectionLog, false],
     [LogType.setupLog, false],
-    [LogType.streamLog, true],
+    [LogType.streamLog, false],
 ]);
 
 export function getLogLevel(loggerType) {

@@ -14,7 +14,7 @@ function makePort(portIndex, nodeIndex){
     return  startPort[portIndex] + nodeIndex * 1000;
 }
 
-export async function InitializeChainOnSingleMachine(chainID) {
+export async function InitializeChainOnSingleMachine(chainID, ...nodeNames) {
     const setupClient = await new SetupClient(await GetConnection())
 
     const chainState = await setupClient.MakeChainState()
@@ -29,7 +29,7 @@ export async function InitializeChainOnSingleMachine(chainID) {
     let nodeIndex = 0
 
     //build argNodeList
-    const argNodeList = chainState.ActivatedNodes().map(node => {
+    const argNodeList = chainState.ActivatedNodesByName(...nodeNames).map(node => {
 
         const argNode = {
             node_name: node.node_info.node_name,
@@ -58,7 +58,7 @@ export async function InitializeChainOnSingleMachine(chainID) {
 }
 
 
-export async function InitializeChainOnMultiMachine(chainID) {
+export async function InitializeChainOnMultiMachine(chainID, ...nodeNames) {
     const setupClient = await new SetupClient(await GetConnection())
 
     const chainState = await setupClient.MakeChainState()
@@ -71,7 +71,7 @@ export async function InitializeChainOnMultiMachine(chainID) {
     }
 
     //build argNodeList
-    const argNodeList = chainState.ActivatedNodes().map(node => {
+    const argNodeList = chainState.ActivatedNodesByName(...nodeNames).map(node => {
         return {
             node_name: node.node_info.node_name,
             node_id: node.node_info.node_id,
@@ -151,7 +151,7 @@ export async function AddChainNodeOnSingleMachine(...nodeNames) {
         succeedCount++
     }
 
-    return succeedCount === nodeNames.length
+    return makeSuccess('succeed')
 }
 
 
@@ -209,7 +209,7 @@ export async function AddChainNodeOnMultiMachine(...nodeNames) {
         succeedCount++
     }
 
-    return succeedCount === nodeNames.length
+    return makeSuccess('succeed')
 }
 
 export async function StartInitializedNodes() {
@@ -232,7 +232,7 @@ export async function GetSetupCommandHistory() {
 export async function GetServerAddrOfMasters(){
     const setupClient = await new SetupClient(await GetConnection())
     const chainState = await setupClient.MakeChainState()
-    const result = chainState.ActivatedWebServiceServers()
+    const result = await chainState.ActivatedWebServiceServers()
     console.info('list of webserver address:', result)
     return makeSuccess(result)
 }

@@ -20,7 +20,7 @@ export class WebSocketConnection {
 
         this.address = address;
         this.options = {
-            connectTimeout: 5000,
+            connectTimeout: 30000,
             reconnectInterval: 3000,
             getToken: () => {},
             getClientId: () => {},

@@ -23,7 +23,7 @@ export async function GetConnection() {
     conn = new WebSocketConnection(serverAddr, {
         getToken: getToken,
         getClientId: getClientId,
-        connectTimeout: 10000
+        connectTimeout: 30000
     });
 
     const p = await conn.connect();

@@ -2,6 +2,10 @@
   <div>
     <h1>API Pressure Test</h1>
     <div>
+      <label>webserver: </label>
+      <input v-model="server" type="text" required />
+    </div>
+    <div>
       <label>创建人员数量: </label>
       <input v-model.number="iterations" type="number" min="1" />
     </div>
@@ -28,7 +32,7 @@ import {
   searchIdentity as queryPerson,
   updateIdentity as updatePerson,
   revokeIdentity as deletePerson,
-  getDefaultPerson,
+  getDefaultPerson, setServer, getServer,
 } from '@/api/identity.js';
 
 export default {
@@ -41,6 +45,7 @@ export default {
       log: '',
       identities: [], // 保存生成的 identities
       lock: false, // 简单的锁标志
+      server: getServer(),
     };
   },
   methods: {
@@ -48,6 +53,8 @@ export default {
       this.log = 'Starting pressure tests...\n';
       this.identities = []; // 清空 identities
       this.lock = false; // 重置锁标志
+
+      setServer('http://'+this.server)
 
       const params = {
         iterations: this.iterations,

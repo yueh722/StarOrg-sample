@@ -1,4 +1,4 @@
-import {makeSuccess, SetupClient} from "./SetupClient.js";
+import {makeError, makeSuccess, SetupClient} from "./SetupClient.js";
 import {GetConnection} from "../example/conn.js";
 import log from "loglevel";
 import {getLogLevel, LogType} from "./log.js";
@@ -20,6 +20,17 @@ export class ChainState {
     ActivatedNodes() {
         return (this.rawData.nodes || []).filter(node => {
             return node?.node_info?.node_id !== '' && node?.node_info?.node_name !== '' && node.online === true
+        });
+    }
+
+    ActivatedNodesByName(...names) {
+        if (names.length === 0) {
+            return this.ActivatedNodes()
+        }
+
+        return (this.rawData.nodes || []).filter(node => {
+            return node?.node_info?.node_id !== '' && node?.node_info?.node_name !== '' && node.online === true &&
+                names.includes(node?.node_info?.node_name)
         });
     }
 
@@ -63,13 +74,22 @@ export class ChainState {
     }
 
     /**
-     * 返回所有 activated（healthy）且 WebServiceListenAddr 非空的节点
-     * @param {Array} nodes - 可选，若不传则使用 activatedNodes
+     * 返回所有 initialized（healthy）且 WebServiceListenAddr 非空的节点
      */
-    ActivatedWebServiceServers() {
-        const data = this.ActivatedNodes().map(node => {
-            const listen_addr = node.node_info?.web_service_listen_addr;
-            return updateListenAddressHost(listen_addr, node.node_info?.node_address)
+    async ActivatedWebServiceServers() {
+        if (!this.IsInitialized()){
+            return makeError('chain is not initialized');
+        }
+
+        const data = this.AllNodes()
+            .filter(node => {
+                return node.initialized === true &&
+                node.node_info?.web_service_listen_addr !== undefined &&
+                node.node_info?.node_address !== undefined;
+            })
+            .map(node => {
+                const listen_addr = node.node_info?.web_service_listen_addr;
+                return updateListenAddressHost(listen_addr, node.node_info?.node_address)
         });
 
         return makeSuccess(data)
@@ -113,6 +133,14 @@ function findIPByPrefix(addresses, prefix) {
  * @returns {string} 更新后的完整地址
  */
 function updateListenAddressHost(listenAddress, serverAddress) {
+    if (listenAddress === undefined) {
+        return ''
+    }
+
+    if (serverAddress === undefined) {
+        return listenAddress;
+    }
+
     // 场景1：处理 URL 格式（如 http://0.0.0.0:3000/api、ws://localhost:8080）
     if (listenAddress.includes('://')) {
         try {

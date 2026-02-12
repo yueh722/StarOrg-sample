@@ -6,12 +6,15 @@ import axios from 'axios';
 //const host = '/api';
 const revokedFlag = ' - #revoked#'
 
-const hosts = [
-   'http://localhost:1000',
-   'http://localhost:2000',
-   'http://localhost:3000',
-   'http://localhost:4000'
-];
+const hosts = [];
+
+export function setServer(url){
+  hosts[0] = url;
+}
+
+export function getServer(){
+  return hosts[0]
+}
 
 
 // 创建 axios 实例

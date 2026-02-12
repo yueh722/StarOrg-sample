@@ -1,7 +1,14 @@
 <template>
   <div class="person-container">
     <!-- 表单 -->
+    <div>
+      <h1>Server Address</h1>
+      <label>webserver: </label>
+      <input v-model="server" type="text" required />
+    </div>
+
     <div class="form-container">
+
       <h1>人员管理</h1>
       <form @submit.prevent="handleAddPerson">
         <label>ID: <input v-model="person.id" type="text" required /></label>
@@ -64,7 +71,7 @@
 </template>
 
 <script>
-import {getDefaultPerson, getNewPerson, isPersonRevokedRemote} from '@/api/identity.js';
+import {getDefaultPerson, getNewPerson, getServer, isPersonRevokedRemote, setServer} from '@/api/identity.js';
 import {
   localInsertPerson,
   localUpdatePerson,
@@ -104,6 +111,7 @@ export default {
       message: '',
       messageClass: '',
       showRevokedPerson: false,
+      server: getServer(),
     };
   },
   computed: {
@@ -140,9 +148,15 @@ export default {
     },
   },
   methods: {
+
+    async setServer() {
+      setServer('http://'+this.server);
+    },
+
     // 新增人员
     async handleAddPerson() {
       try {
+        await this.setServer();
         const res = await createIdentity(this.person);
         localInsertPerson(this.person);
         this.message = '新增成功！' + '\n' + JSON.stringify(res);
@@ -156,6 +170,8 @@ export default {
     // 修改人员
     async handleUpdatePerson() {
       try {
+        await this.setServer();
+
         const res = await updateIdentity(this.person);
         localUpdatePerson(this.person);
         this.message = '修改成功！' + '\n' + JSON.stringify(res);
@@ -169,6 +185,8 @@ export default {
     // 删除人员
     async handleDeletePerson(id) {
       try {
+        await this.setServer();
+
         const res = await revokeIdentity(id);
         localRemovePerson(id);
         this.message = '删除成功！' + '\n' + JSON.stringify(res);
@@ -182,6 +200,8 @@ export default {
     // 选择人员
     async selectPerson(person) {
       try {
+        await this.setServer();
+
         const remotePerson = await searchIdentity(person.id)
         this.selectedPersonId = remotePerson.id; // 设置选中的人员 ID
         this.person = { ...remotePerson }; // 更新表单内容
@@ -193,6 +213,8 @@ export default {
     },
     async handleFetchAllPersons() {
       try{
+        await this.setServer();
+
         cleanupLocalPersonList()
 
         let total = 0, revokedCount = 0, normalCount = 0, loadedCount = 0;
@@ -239,6 +261,8 @@ export default {
 
     async handleRevokeAllPersons() {
       try{
+        await this.setServer();
+
         var persons = localGetPersonList().slice(0)
         for (const i in persons) {
           await revokeIdentity(persons[i].id)

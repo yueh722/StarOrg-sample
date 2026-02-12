@@ -3,7 +3,8 @@
 import {StartStream} from "./stream.js";
 import {RestartAllNodes, StartAllNodes, StopAllNodes} from "./control-node.js";
 import {
-    AddChainNodeOnSingleMachine, GetServerAddrOfMasters, GetSetupCommandHistory,
+    AddChainNodeOnMultiMachine,
+    AddChainNodeOnSingleMachine, GetServerAddrOfMasters, GetSetupCommandHistory, InitializeChainOnMultiMachine,
     InitializeChainOnSingleMachine,
     PurgeChain,
     StartInitializedNodes
@@ -11,13 +12,14 @@ import {
 import {makeSuccess, SetupClient} from "../src/SetupClient.js";
 import {GetConnection} from "./conn.js";
 
-async function DeployFromScratch(){
+async function DeployHalfToMultiMachineFromScratch(){
 
     const results = [
         await PurgeChain(),
-        await InitializeChainOnSingleMachine('mychain'),
+        await InitializeChainOnMultiMachine('mychain', 'node1', 'node2'),
         await StartInitializedNodes(),
-        await AddChainNodeOnSingleMachine('node3', 'node4'),
+        await oksleep(), //give some time let validators of node1 and node2 running
+        await AddChainNodeOnMultiMachine('node3', 'node4'),
 
         //start node3, node4
         await StartNodeByName('node3', 'node4'),
@@ -27,6 +29,27 @@ async function DeployFromScratch(){
 
     return results;
 }
+
+
+async function DeployHalfFromScratch(){
+
+    const results = [
+        await PurgeChain(),
+        await InitializeChainOnSingleMachine('mychain', 'node1', 'node2'),
+        await StartInitializedNodes(),
+        await oksleep(), //give some time let validators of node1 and node2 running
+        await AddChainNodeOnSingleMachine('node3', 'node4', 'node5', 'node6'),
+
+        //start node3, node4
+        //await StartNodeByName('node3', 'node4'),
+        // or you can use StartInitializedNodes() to start all initialized nodes again.
+        await StartInitializedNodes(),
+        await RestartAllNodes,
+    ]
+
+    return results;
+}
+
 
 async function StartNodeByName(...names){
     const setupClient = await new SetupClient(await GetConnection())
@@ -46,6 +69,11 @@ function CheckResult(...results){
     }
 }
 
+async function oksleep() {
+    await sleep(4)
+    return makeSuccess('good')
+}
+
 function sleep(seconds) {
     return new Promise(resolve => {
         setTimeout(resolve, seconds * 1000);
@@ -53,8 +81,9 @@ function sleep(seconds) {
 }
 
 async function DelayRestartAllNodes() {
-    await sleep(5)
+    //await sleep(5)
     await RestartAllNodes()
+    //await sleep(3)
     return makeSuccess('succeed')
 }
 
@@ -64,16 +93,18 @@ async function DelayRestartAllNodes() {
 
 //await StartAllNodes();
 
+await StartStream()
+
+
 for (let i = 0; i < 100; i++) {
 
    //break
-    await StartStream()
 
     const results = [
-        ...await DeployFromScratch(),
+        ...await DeployHalfFromScratch(),
         await DelayRestartAllNodes(),
         await GetServerAddrOfMasters(),
-        await GetSetupCommandHistory()
+        //await GetSetupCommandHistory()
     ]
 
     CheckResult(...results)

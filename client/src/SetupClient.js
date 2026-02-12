@@ -94,7 +94,7 @@ export class SetupClient {
 
     async AddChainNode(argNode) {
         //check params
-        if (argNode === undefined) {
+        if (argNode.length === 0) {
             return 'chainID and argNodes can not be empty';
         }
 
