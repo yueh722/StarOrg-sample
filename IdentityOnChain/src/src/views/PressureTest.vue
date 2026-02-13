@@ -1,10 +1,26 @@
 <template>
   <div>
     <h1>API Pressure Test</h1>
-    <div>
-      <label>webserver: </label>
-      <input v-model="server" type="text" required />
+
+    <!-- 服务器配置区域 -->
+    <div class="server-section">
+      <div class="url-group">
+        <label for="fetch-url">fetch server list from URL:</label>
+        <input id="fetch-url" v-model="fetchURL" type="text" required />
+        <button @click="applyFetchURL">应用</button>
+      </div>
+      <div class="server-select-group">
+        <label for="server-select">选择服务器:</label>
+        <select id="server-select" v-model="selectedServer" @change="onServerChange">
+          <option value="">-- 请选择服务器 --</option>
+          <option v-for="(server, index) in serverOptions" :key="index" :value="server">
+            {{ server }}
+          </option>
+        </select>
+      </div>
     </div>
+
+    <!-- 压力测试配置 -->
     <div>
       <label>创建人员数量: </label>
       <input v-model.number="iterations" type="number" min="1" />
@@ -32,7 +48,7 @@ import {
   searchIdentity as queryPerson,
   updateIdentity as updatePerson,
   revokeIdentity as deletePerson,
-  getDefaultPerson, setServer, getServer,
+  getDefaultPerson, getFetchURL, fetchServerListFromURL, getServers, setServer as setServerAPI, setServer, getServer,
 } from '@/api/identity.js';
 
 export default {
@@ -45,16 +61,69 @@ export default {
       log: '',
       identities: [], // 保存生成的 identities
       lock: false, // 简单的锁标志
-      server: getServer(),
+      fetchURL: getFetchURL(),
+      serverlist: getServers(),
+      selectedServer: getServer(), // 当前选中的服务器
     };
   },
+  computed: {
+    // 将serverlist转换为选项数组
+    serverOptions() {
+      if (!this.serverlist) return [];
+      // 如果serverlist是字符串，按换行分割
+      if (typeof this.serverlist === 'string') {
+        return this.serverlist.split('\n').filter(s => s.trim());
+      }
+      // 如果是数组，直接返回
+      if (Array.isArray(this.serverlist)) {
+        return this.serverlist;
+      }
+      return [];
+    },
+  },
   methods: {
+    // 获取当前选中的服务器内容
+    getSelectedServer() {
+      return this.selectedServer;
+    },
+
+    // 服务器选择变化时的处理
+    onServerChange() {
+      console.log('选中的服务器:', this.selectedServer);
+      setServer(this.selectedServer)
+    },
+
+    checkSelectedServer() {
+      return (this.selectedServer.length > 0)
+    },
+
+    async applyFetchURL() {
+
+      this.serverlist = await fetchServerListFromURL(this.fetchURL);
+      // 如果之前有选中的服务器，尝试保留选择
+      if (this.serverOptions.includes(this.selectedServer)) {
+        // 保持当前选择
+      } else {
+        if (this.serverlist.length > 0) {
+          this.selectedServer = this.serverlist[0];
+        } else {
+          this.selectedServer = '';
+        }
+
+        this.onServerChange()
+      }
+    },
+
     async runTests() {
-      this.log = 'Starting pressure tests...\n';
       this.identities = []; // 清空 identities
       this.lock = false; // 重置锁标志
 
-      setServer('http://'+this.server)
+      if (!this.checkSelectedServer()) {
+        alert('choose a server first')
+        return;
+      }
+
+      this.log = 'Starting pressure tests...\n';
 
       const params = {
         iterations: this.iterations,
@@ -79,7 +148,6 @@ export default {
         this.log += 'Running updatePerson pressure test...\n';
         const updateResults = await this.runPressureTest(
             async () => {
-
               try {
                 const identity = this.getRandomIdentity();
                 const updatedPerson = { ...identity, name: this.generatePerson().name };
@@ -206,11 +274,48 @@ textarea {
   margin-top: 20px;
   width: 100%;
 }
+
 div {
   margin-bottom: 10px;
 }
+
 label {
   display: inline-block;
   width: 120px;
+}
+
+/* 服务器配置区域样式 */
+.server-section {
+  margin-bottom: 20px;
+}
+
+.url-group, .server-select-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.url-group label, .server-select-group label {
+  margin: 0;
+  white-space: nowrap;
+  min-width: 180px;
+}
+
+.url-group input, .server-select-group select {
+  flex: 1;
+  min-width: 250px;
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.url-group button {
+  padding: 8px 16px;
+  border: 1px solid #ccc;
+  background: #f0f0f0;
+  cursor: pointer;
+  border-radius: 4px;
+  white-space: nowrap;
 }
 </style>

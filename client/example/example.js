@@ -4,13 +4,14 @@ import {StartStream} from "./stream.js";
 import {RestartAllNodes, StartAllNodes, StopAllNodes} from "./control-node.js";
 import {
     AddChainNodeOnMultiMachine,
-    AddChainNodeOnSingleMachine, GetServerAddrOfMasters, GetSetupCommandHistory, InitializeChainOnMultiMachine,
+    AddChainNodeOnSingleMachine, GetServerAddrOfABCIApp,
+    GetSetupCommandHistory, InitializeChainOnMultiMachine,
     InitializeChainOnSingleMachine,
     PurgeChain,
     StartInitializedNodes
 } from "./setup.js";
 import {makeSuccess, SetupClient} from "../src/SetupClient.js";
-import {GetConnection} from "./conn.js";
+import {GetConnection, setServerAddress} from "./conn.js";
 
 async function DeployHalfToMultiMachineFromScratch(){
 
@@ -81,11 +82,14 @@ function sleep(seconds) {
 }
 
 async function DelayRestartAllNodes() {
-    //await sleep(5)
+    //await sleep(2)
     await RestartAllNodes()
-    //await sleep(3)
+    //await sleep(2)
     return makeSuccess('succeed')
 }
+
+//must set address to nodemaster first.
+setServerAddress('localhost:8080/websocket')
 
 //await StopAllNodes()
 
@@ -101,9 +105,9 @@ for (let i = 0; i < 100; i++) {
    //break
 
     const results = [
-        ...await DeployHalfFromScratch(),
-        await DelayRestartAllNodes(),
-        await GetServerAddrOfMasters(),
+        //...await DeployHalfFromScratch(),
+        //await DelayRestartAllNodes(),
+        await GetServerAddrOfABCIApp(),
         //await GetSetupCommandHistory()
     ]
 
@@ -112,15 +116,6 @@ for (let i = 0; i < 100; i++) {
     await sleep(5)
 }
 
-//await StopAllNodes()
-
-//deploy chain
-//await DeployFromScratch()
-
-//control nodes
-//await RestartAllNodes()
-
-//await GetSetupCommandHistory()
 
 
 

@@ -229,10 +229,10 @@ export async function GetSetupCommandHistory() {
     return result
 }
 
-export async function GetServerAddrOfMasters(){
+export async function GetServerAddrOfABCIApp(){
     const setupClient = await new SetupClient(await GetConnection())
     const chainState = await setupClient.MakeChainState()
     const result = await chainState.ActivatedWebServiceServers()
     console.info('list of webserver address:', result)
-    return makeSuccess(result)
+    return result
 }

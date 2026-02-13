@@ -9,6 +9,7 @@
   },
   "private": true,
   "dependencies": {
+    "crypto-js": "^4.2.0",
     "loglevel": "^1.9.2",
     "ws": "^8.19.0",
     "zod": "^4.3.6"

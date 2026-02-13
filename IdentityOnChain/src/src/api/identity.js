@@ -6,14 +6,42 @@ import axios from 'axios';
 //const host = '/api';
 const revokedFlag = ' - #revoked#'
 
-const hosts = [];
+let cacheHosts = [];
+let hosts = [];
+let fetchURL = '';
 
-export function setServer(url){
-  hosts[0] = url;
+export async function fetchServerListFromURL(urlStr){
+  fetchURL = urlStr
+  return await fetchServers()
+}
+
+export function getServers(){
+  return cacheHosts;
+}
+
+export function setServer(server){
+  hosts = [server]
 }
 
 export function getServer(){
-  return hosts[0]
+  return hosts[0];
+}
+
+export function getFetchURL(){
+  return fetchURL
+}
+
+export async function fetchServers(){
+
+  try {
+    const res = await fetch(fetchURL);
+    const data = await res.json();
+    cacheHosts = data.data;
+    console.info(cacheHosts);
+    return cacheHosts
+  } catch (err) {
+    console.error('Error while fetching server, err:', err);
+  }
 }
 
 
@@ -22,9 +50,19 @@ const axiosInstance = axios.create();
 
 // 请求拦截器
 axiosInstance.interceptors.request.use((config) => {
+
+  if (hosts.length === 0) {
+    console.error('No hosts found.');
+    return config;
+  }
+
   // 随机选择一个 host
   const randomHost = hosts[Math.floor(Math.random() * hosts.length)];
-  config.baseURL = randomHost; // 动态设置 baseURL
+  if (randomHost) {
+    config.baseURL = randomHost; // 动态设置 baseURL
+  } else {
+    config.baseURL = hosts[0];
+  }
   console.log('Using host:', randomHost);
   return config;
 });

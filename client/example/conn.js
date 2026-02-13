@@ -2,6 +2,11 @@ import {generateToken, sharedSecret} from "../src/Crypto.js";
 import {WebSocketConnection} from "../src/Connection.js";
 
 let conn = null;
+let serverAddr = null;
+
+export function setServerAddress(addr) {
+    serverAddr = addr;
+}
 
 export async function GetConnection() {
 
@@ -10,9 +15,12 @@ export async function GetConnection() {
     }
 
     const clientID = 'redgate_c58f'
-    const serverAddr = 'localhost:8080/websocket'
 
-    function getToken() {
+    if (!serverAddr) {
+        console.error('serverAddr is missing')
+    }
+
+    async function getToken() {
         return generateToken(clientID, sharedSecret)
     }
 

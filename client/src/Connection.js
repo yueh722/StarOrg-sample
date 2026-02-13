@@ -99,8 +99,9 @@ export class WebSocketConnection {
         if (typeof window === 'undefined') {
             // Node.js 环境（依赖 ws 库，需提前 npm install ws）
             const WebSocket = (await import('ws')).default;
+            const token = await this.options.getToken()
             wsOptions.headers = {
-                'Authorization': `Bearer ${this.options.getToken()}`,
+                'Authorization': `Bearer ${token}`,
                 'X-Client-ID': this.options.getClientId()
             };
             this.ws = new WebSocket(url, wsOptions);

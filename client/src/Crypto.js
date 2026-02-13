@@ -1,10 +1,12 @@
 import { createHmac } from 'crypto';
 
-const sharedSecret = Buffer.from(
+const sharedSecret = new Uint8Array(
     [182, 19, 122, 212, 127, 206, 37, 103,
     54, 152, 168, 175, 98, 176, 158, 20,
     149, 101, 192, 23, 227, 145, 167, 182,
-    112, 39, 121, 44, 42, 200, 135, 170], "hex")
+    112, 39, 121, 44, 42, 200, 135, 170]);
+
+
 
 /**
  * 生成签名（HMAC-SHA256）
@@ -13,11 +15,32 @@ const sharedSecret = Buffer.from(
  * @param {Buffer} secret - 密钥（必须为 Buffer，代表原始二进制数据）
  * @returns {string} 签名的十六进制小写字符串
  */
-function signature(ts, clientID, secret) {
+function signatureNode(ts, clientID, secret) {
     const hmac = createHmac('sha256', secret);
-    hmac.update(clientID);
-    hmac.update(ts.toString());
+    hmac.update(clientID+ts.toString());
     return hmac.digest('hex');
+}
+
+// running in browser
+async function signatureBrowser(ts, clientID, secret) {
+    const data = clientID + ts.toString();
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+        'raw',
+        secret,
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+    );
+    const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
+    return Array.from(new Uint8Array(sig))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+}
+
+
+async function signature(ts, clientID, secret) {
+    return signatureNode(ts, clientID, secret);
 }
 
 /**
@@ -26,9 +49,9 @@ function signature(ts, clientID, secret) {
  * @param {Buffer} secret - 密钥（必须为 Buffer）
  * @returns {string} 生成的 token 字符串
  */
-function generateToken(clientID, secret) {
+async function generateToken(clientID, secret) {
     const ts = Math.floor(Date.now() / 1000); // 转换为秒级 Unix 时间戳
-    const sig = signature(ts, clientID, secret);
+    const sig = await signature(ts, clientID, secret);
     return `${ts}:${sig}`;
 }
 
