@@ -121,7 +121,9 @@ export async function AddChainNodeOnSingleMachine(...nodeNames) {
             const argNode = {
             node_name: node.node_info.node_name,
             node_id: node.node_info.node_id,
-            node_domain_or_ip: '127.0.0.1',
+
+            //node_domain_or_ip: '127.0.0.1',
+            node_domain_or_ip: node.node_info.node_name,
 
             // 'node2.com' need to be a resolvable domain.
             //node_domain_or_ip: 'node2.com',

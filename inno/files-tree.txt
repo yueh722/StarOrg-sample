@@ -1,0 +1,15 @@
+----------------------------
+├─NodeAgent
+│  │  AgentGUI.exe
+│  │  config.template.ini
+│  │  nodeagent.exe
+│  │
+│  └─cometbft
+│      └─bin
+│              abci-v2-Identity-app.exe
+│              cometbft.exe
+│
+└─NodeMaster
+        config.template.ini
+        masterGUI.exe
+        nodemaster.exe

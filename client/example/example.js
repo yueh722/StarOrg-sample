@@ -36,10 +36,10 @@ async function DeployHalfFromScratch(){
 
     const results = [
         await PurgeChain(),
-        await InitializeChainOnSingleMachine('mychain', 'node1', 'node2'),
+        await InitializeChainOnSingleMachine('mychain', 'node1', 'node2', 'node3', 'node4'),
         await StartInitializedNodes(),
         await oksleep(), //give some time let validators of node1 and node2 running
-        await AddChainNodeOnSingleMachine('node3', 'node4', 'node5', 'node6'),
+        await AddChainNodeOnSingleMachine('node10', 'node40', 'node20', 'node30'),
 
         //start node3, node4
         //await StartNodeByName('node3', 'node4'),
@@ -105,15 +105,16 @@ for (let i = 0; i < 100; i++) {
    //break
 
     const results = [
-        //...await DeployHalfFromScratch(),
-        //await DelayRestartAllNodes(),
+        ...await DeployHalfFromScratch(),
+        await DelayRestartAllNodes(),
         await GetServerAddrOfABCIApp(),
-        //await GetSetupCommandHistory()
+        await GetSetupCommandHistory()
     ]
 
     CheckResult(...results)
 
     await sleep(5)
+    break
 }
 
 
