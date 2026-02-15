@@ -14,6 +14,19 @@ function makePort(portIndex, nodeIndex){
     return  startPort[portIndex] + nodeIndex * 1000;
 }
 
+/**
+ * 在一台机器上初始化当前网络中的所有节点或者nodeNames指定的节点。
+ * @param {chainID} string - 要初始化的chainID字符串
+ * @param {...nodeNames} params - 将要初始化的NodeName
+ * @Remark
+ *      1. 如果不传入nodeNames，表示初始化网络中的所有节点
+ *      2. 如果传入nodeNames，那么只有这些nodeNames存在并且在线的才会被初始化，不存在的nodeNames将会被忽略执行初始化操作。
+ *      3. 可以通过 SetupClient.MakeChainState 得到 ChainState 来遍历当前的节点信息。
+ *      4. 在设置 node_domain_or_ip 的时候, 会使用 127.0.0.1
+ *      5. 所有的node的端口都是不一样的。
+ *      6. 只有所有的node都在一台机器上安装的情况才应该使用该方法。
+ * @returns {Promise<Object>} 响应结果，返回{success: boolean, data?: any, error?: string}
+ */
 export async function InitializeChainOnSingleMachine(chainID, ...nodeNames) {
     const setupClient = await new SetupClient(await GetConnection())
 
@@ -57,7 +70,19 @@ export async function InitializeChainOnSingleMachine(chainID, ...nodeNames) {
     return await setupClient.InitializeChainNode(chainID, argNodeList)
 }
 
-
+/**
+ * 在多台机器上初始化当前网络中的所有节点或者nodeNames指定的节点。
+ * @param {chainID} string - 要初始化的chainID字符串
+ * @param {...nodeNames} params - 将要初始化的NodeName
+ * @Remark
+ *      1. 如果不传入nodeNames，表示初始化网络中的所有节点
+ *      2. 如果传入nodeNames，那么只有这些nodeNames存在并且在线的才会被初始化，不存在的nodeNames将会被忽略执行初始化操作。
+ *      3. 可以通过 SetupClient.MakeChainState 得到 ChainState 来遍历当前的节点信息。
+ *      4. 在设置 node_domain_or_ip 的时候，会使用 node.node_info.node_name , 所以要保证是可以解析的域名或者正确的ip。
+ *      5. 所有的 node 的端口都会是一样的。
+ *      6. 如果是混合安装，也就是有些机器上会创建多个node，那么也需要使用此方法进行。因为其他机器上的node会尝试链接每个node，必须使用域名或IP.
+ * @returns {Promise<Object>} 响应结果，返回{success: boolean, data?: any, error?: string}
+ */
 export async function InitializeChainOnMultiMachine(chainID, ...nodeNames) {
     const setupClient = await new SetupClient(await GetConnection())
 
@@ -95,7 +120,18 @@ export async function InitializeChainOnMultiMachine(chainID, ...nodeNames) {
     return await setupClient.InitializeChainNode(chainID, argNodeList)
 }
 
-//e.g. AddChainNodeOnSingleMachine('node3','node4')
+/**
+ * 在一台机器上添加nodeNames指定的节点。
+ * @param {...nodeNames} params - 将要初始化的NodeName
+ * @Remark
+ *      1. 如果传入nodeNames，那么只有这些nodeNames存在并且在线的才会被初始化，不存在的nodeNames将会被忽略执行初始化操作。
+ *      2. 可以通过 SetupClient.MakeChainState 得到 ChainState 来遍历当前的节点信息。
+ *      3. 在设置 node_domain_or_ip 的时候，会使用 127.0.0.1
+ *      4. 所有的 node 的端口都是不一样的。
+ *      5. 必须在初始化完成以后，才能执行添加新节点的操作。
+ *      6. 一般用于后期想要新增节点的需求。
+ * @returns {Promise<Object>} 响应结果，返回{success: boolean, data?: any, error?: string}
+ */
 export async function AddChainNodeOnSingleMachine(...nodeNames) {
     const setupClient = await new SetupClient(await GetConnection())
 
@@ -122,8 +158,8 @@ export async function AddChainNodeOnSingleMachine(...nodeNames) {
             node_name: node.node_info.node_name,
             node_id: node.node_info.node_id,
 
-            //node_domain_or_ip: '127.0.0.1',
-            node_domain_or_ip: node.node_info.node_name,
+            node_domain_or_ip: '127.0.0.1',
+            //node_domain_or_ip: node.node_info.node_name,
 
             // 'node2.com' need to be a resolvable domain.
             //node_domain_or_ip: 'node2.com',
@@ -157,7 +193,18 @@ export async function AddChainNodeOnSingleMachine(...nodeNames) {
 }
 
 
-//e.g. AddChainNodeOnMultiMachine('node3','node4')
+/**
+ * 在多台机器上添加nodeNames指定的节点。
+ * @param {...nodeNames} params - 将要初始化的NodeName
+ * @Remark
+ *      1. 如果传入nodeNames，那么只有这些nodeNames存在并且在线的才会被初始化，不存在的nodeNames将会被忽略执行初始化操作。
+ *      2. 可以通过 SetupClient.MakeChainState 得到 ChainState 来遍历当前的节点信息。
+ *      3. 在设置 node_domain_or_ip 的时候，会使用 node.node_info.node_name , 所以要保证是可以解析的域名或者正确的ip。
+ *      4. 所有的 node 的端口都是一样的。
+ *      5. 必须在初始化完成以后，才能执行添加新节点的操作。
+ *      6. 一般用于后期想要新增节点的需求。
+ * @returns {Promise<Object>} 响应结果，返回{success: boolean, data?: any, error?: string}
+ */
 export async function AddChainNodeOnMultiMachine(...nodeNames) {
     const setupClient = await new SetupClient(await GetConnection())
 

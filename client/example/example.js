@@ -19,7 +19,7 @@ async function DeployHalfToMultiMachineFromScratch(){
         await PurgeChain(),
         await InitializeChainOnMultiMachine('mychain', 'node1', 'node2'),
         await StartInitializedNodes(),
-        await oksleep(), //give some time let validators of node1 and node2 running
+        await oksleep(5), // give few seconds to let validator nodes finish starting procedure.
         await AddChainNodeOnMultiMachine('node3', 'node4'),
 
         //start node3, node4
@@ -38,14 +38,15 @@ async function DeployHalfFromScratch(){
         await PurgeChain(),
         await InitializeChainOnSingleMachine('mychain', 'node1', 'node2', 'node3', 'node4'),
         await StartInitializedNodes(),
-        await oksleep(), //give some time let validators of node1 and node2 running
+        // give few seconds to let validator nodes finish starting procedure. the more node you initialized one time,
+        // the more time you need to wait
+        await oksleep(5),
         await AddChainNodeOnSingleMachine('node10', 'node40', 'node20', 'node30'),
 
         //start node3, node4
         //await StartNodeByName('node3', 'node4'),
         // or you can use StartInitializedNodes() to start all initialized nodes again.
         await StartInitializedNodes(),
-        await RestartAllNodes,
     ]
 
     return results;
@@ -70,8 +71,8 @@ function CheckResult(...results){
     }
 }
 
-async function oksleep() {
-    await sleep(4)
+async function oksleep(n) {
+    await sleep(n)
     return makeSuccess('good')
 }
 
@@ -106,7 +107,7 @@ for (let i = 0; i < 100; i++) {
 
     const results = [
         ...await DeployHalfFromScratch(),
-        await DelayRestartAllNodes(),
+        //await DelayRestartAllNodes(),
         await GetServerAddrOfABCIApp(),
         await GetSetupCommandHistory()
     ]

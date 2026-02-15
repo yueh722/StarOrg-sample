@@ -91,9 +91,11 @@ export class WebSocketConnection {
         });
 
         // 构建带自定义头的请求（WebSocket原生不支持设置头，需通过Options参数在浏览器环境兼容）
-        const wsOptions = {
-            agent: httpsAgent,
-        };
+        const wsOptions = {};
+
+        if (protocol === 'wss') {
+            wsOptions.agent = httpsAgent;
+        }
 
         // 浏览器环境通过 headers 设置（部分浏览器支持），Node.js环境需用 ws 库的 headers 选项
         if (typeof window === 'undefined') {
