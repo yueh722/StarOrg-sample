@@ -5,9 +5,16 @@ import  {GetServerAddrOfABCIApp} from "./setup.js";
 import {setServerAddress} from "./conn.js";
 
 async function fetchServers(){
+
+    //在浏览器中调用GetServerAddrOfABCIApp会出错，所以用server转发一下。
     const servers = await GetServerAddrOfABCIApp()
     if (servers.success){
-        servers.data = servers.data.map(item => {return 'http://'+item})
+        servers.data = servers.data.map(item => {
+            return {
+                "server": 'http://'+item.server,
+                "token": item.token,
+            }
+        })
     }
     return servers
 }

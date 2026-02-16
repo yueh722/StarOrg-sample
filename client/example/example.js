@@ -7,7 +7,7 @@ import {
     AddChainNodeOnSingleMachine, GetServerAddrOfABCIApp,
     GetSetupCommandHistory, InitializeChainOnMultiMachine,
     InitializeChainOnSingleMachine,
-    PurgeChain,
+    PurgeChain, ResetNodeByName,
     StartInitializedNodes
 } from "./setup.js";
 import {makeSuccess, SetupClient} from "../src/SetupClient.js";
@@ -32,16 +32,16 @@ async function DeployHalfToMultiMachineFromScratch(){
 }
 
 
-async function DeployHalfFromScratch(){
+async function DeployHalfFromScratch(useLoopIp = true){
 
     const results = [
         await PurgeChain(),
-        await InitializeChainOnSingleMachine('mychain', 'node1', 'node2', 'node3', 'node4'),
+        await InitializeChainOnSingleMachine(useLoopIp, 'mychain','node1', 'node2', 'node3', 'node4'),
         await StartInitializedNodes(),
         // give few seconds to let validator nodes finish starting procedure. the more node you initialized one time,
         // the more time you need to wait
         await oksleep(5),
-        await AddChainNodeOnSingleMachine('node10', 'node40', 'node20', 'node30'),
+        await AddChainNodeOnSingleMachine(useLoopIp,'node50', 'node40', 'node20', 'node30'),
 
         //start node3, node4
         //await StartNodeByName('node3', 'node4'),
@@ -100,6 +100,7 @@ setServerAddress('localhost:8080/websocket')
 
 await StartStream()
 
+//await ResetNodeByName('node3', 'node4'),
 
 for (let i = 0; i < 100; i++) {
 
@@ -109,7 +110,7 @@ for (let i = 0; i < 100; i++) {
         ...await DeployHalfFromScratch(),
         //await DelayRestartAllNodes(),
         await GetServerAddrOfABCIApp(),
-        await GetSetupCommandHistory()
+        await GetSetupCommandHistory(),
     ]
 
     CheckResult(...results)

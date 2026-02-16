@@ -16,11 +16,15 @@ export async function fetchServerListFromURL(urlStr){
 }
 
 export function getServers(){
-  return cacheHosts;
+  return cacheHosts.map(item => item.server);
 }
 
 export function setServer(server){
   hosts = [server]
+
+  const token = cacheHosts.find(item => item.server === server)?.token || "";
+  console.log('select server:', server, token)
+  setGlobalToken(token)
 }
 
 export function getServer(){
@@ -38,7 +42,7 @@ export async function fetchServers(){
     const data = await res.json();
     cacheHosts = data.data;
     console.info(cacheHosts);
-    return cacheHosts
+    return getServers();
   } catch (err) {
     console.error('Error while fetching server, err:', err);
   }
@@ -47,6 +51,17 @@ export async function fetchServers(){
 
 // 创建 axios 实例
 const axiosInstance = axios.create();
+
+const setGlobalToken = (token) => {
+  if (token) {
+    // common 表示对所有请求方法生效
+    axiosInstance.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    localStorage.setItem('auth_token', token);
+  } else {
+    delete axiosInstance.defaults.headers.common['Authorization'];
+    localStorage.removeItem('auth_token');
+  }
+};
 
 // 请求拦截器
 axiosInstance.interceptors.request.use((config) => {

@@ -89,8 +89,12 @@ export class ChainState {
             })
             .map(node => {
                 const listen_addr = node.node_info?.web_service_listen_addr;
-                return updateListenAddressHost(listen_addr, node.node_info?.node_address)
-        });
+                return {
+                    "server": updateListenAddressHost(listen_addr, node.node_info?.node_address),
+                    "token": node.node_info?.token,
+                }
+            }
+        );
 
         return makeSuccess(data)
     }
@@ -172,7 +176,8 @@ function updateListenAddressHost(listenAddress, serverAddress) {
         "proxy_app": "tcp://127.0.0.1:56658",
         "rpc_addr": "http://127.0.0.1:56657",
         "web_service_listen_addr": "0.0.0.0:4000",
-        "validator": true
+        "validator": true,
+        "token": "webservice-api-token",
       },
       "host_info": {
         "host_name": "John-PC",

@@ -14,6 +14,7 @@ export async function GetConnection() {
         return conn;
     }
 
+    // you can change clientID.
     const clientID = 'redgate_c58f'
 
     if (!serverAddr) {

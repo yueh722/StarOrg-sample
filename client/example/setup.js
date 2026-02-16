@@ -27,7 +27,7 @@ function makePort(portIndex, nodeIndex){
  *      6. 只有所有的node都在一台机器上安装的情况才应该使用该方法。
  * @returns {Promise<Object>} 响应结果，返回{success: boolean, data?: any, error?: string}
  */
-export async function InitializeChainOnSingleMachine(chainID, ...nodeNames) {
+export async function InitializeChainOnSingleMachine(useLoopIp, chainID, ...nodeNames) {
     const setupClient = await new SetupClient(await GetConnection())
 
     const chainState = await setupClient.MakeChainState()
@@ -48,9 +48,7 @@ export async function InitializeChainOnSingleMachine(chainID, ...nodeNames) {
             node_name: node.node_info.node_name,
             node_id: node.node_info.node_id,
 
-
-            //node_domain_or_ip: '127.0.0.1',
-            node_domain_or_ip: node.node_info.node_name,
+            node_domain_or_ip: useLoopIp ? '127.0.0.1': node.node_info.node_name,
 
             // 'node1.com' need to be a resolvable domain.
             //node_domain_or_ip: 'node1.com',
@@ -132,7 +130,7 @@ export async function InitializeChainOnMultiMachine(chainID, ...nodeNames) {
  *      6. 一般用于后期想要新增节点的需求。
  * @returns {Promise<Object>} 响应结果，返回{success: boolean, data?: any, error?: string}
  */
-export async function AddChainNodeOnSingleMachine(...nodeNames) {
+export async function AddChainNodeOnSingleMachine(useLoopIp, ...nodeNames) {
     const setupClient = await new SetupClient(await GetConnection())
 
     const chainState = await setupClient.MakeChainState()
@@ -158,8 +156,7 @@ export async function AddChainNodeOnSingleMachine(...nodeNames) {
             node_name: node.node_info.node_name,
             node_id: node.node_info.node_id,
 
-            node_domain_or_ip: '127.0.0.1',
-            //node_domain_or_ip: node.node_info.node_name,
+            node_domain_or_ip: useLoopIp ? '127.0.0.1': node.node_info.node_name,
 
             // 'node2.com' need to be a resolvable domain.
             //node_domain_or_ip: 'node2.com',
@@ -261,16 +258,33 @@ export async function AddChainNodeOnMultiMachine(...nodeNames) {
     return makeSuccess('succeed')
 }
 
+/**
+ * 启动所有初始化的节点。
+ * @returns {Promise<Object>} 响应结果，返回{success: boolean, data?: any, error?: string}
+ */
 export async function StartInitializedNodes() {
     const setupClient = await new SetupClient(await GetConnection())
     return await setupClient.StartAllInitializedNodes()
 }
 
+/**
+ * 重置chain到未初始化的状态，
+ * @Remark
+ *  1. 会删除所有节点的数据。
+ *  2. 所有nodeagent和nodemaster都会变成未初始化状态。
+ *  3. 但是每个node的id和name并不会变
+ *  4. 无需重新配置node，即可立即执行初始化操作。
+ * @returns {Promise<Object>} 响应结果，返回{success: boolean, data?: any, error?: string}
+ */
 export async function PurgeChain() {
     const setupClient = await new SetupClient(await GetConnection())
     return await setupClient.PurgeChain()
 }
 
+/**
+ * 获取之前执行的所有动作的历史记录，包含初始化，添加，启动，结束，重启，重置操作。
+ * @returns {Promise<Object>} 响应结果，返回{success: boolean, data?: any, error?: string}
+ */
 export async function GetSetupCommandHistory() {
     const setupClient = await new SetupClient(await GetConnection())
     const result = await setupClient.GetHistoryOfCommand('')
@@ -278,10 +292,51 @@ export async function GetSetupCommandHistory() {
     return result
 }
 
+/**
+ * 获取当前可用的所有的Cometbft-App Server信息。
+ * @Remark
+ *  1. 因为使用了
+ * @returns {Promise<Object>} 响应结果，返回{success: boolean, data?: any, error?: string}
+ * example:
+ * {
+ *   "success": true,
+ *   "data": [
+ *     {
+ *       "server": "127.0.0.1:1001",
+ *       "token": "416017470de4fa1fb90c39bdaa1983070f2a61cae8ef6cd554a149ad6329c320"
+ *     },
+ *     {
+ *       "server": "127.0.0.1:2001",
+ *       "token": "bad3aab458d65de4ce4cd9112b8b89d8bbe524554f946a81a223dc4fe452a898"
+ *     },
+ *   ]
+ * }
+ */
 export async function GetServerAddrOfABCIApp(){
     const setupClient = await new SetupClient(await GetConnection())
     const chainState = await setupClient.MakeChainState()
     const result = await chainState.ActivatedWebServiceServers()
     console.info('list of webserver address:', result)
     return result
+}
+
+/**
+ * 重置某个节点到初始化的状态，
+ * @Remark
+ *  1. 会删除节点的链上数据。
+ *  2. 并不会变成未初始化状态
+ *  3. 该操作删除链上数据后会重启该节点，该节点会自动从其他节点同步数据过来。
+ *  4. 一般用于某个节点数据损坏，无法正常工作的情况。
+ *  5. [重要] 一次将所有节点都重置了，会导致数据丢失。
+ * @returns {Promise<Object>} 响应结果，返回{success: boolean, data?: any, error?: string}
+ */
+export async function ResetNode(...nodeIDs) {
+    const setupClient = await new SetupClient(await GetConnection())
+    return await setupClient.ResetNode(...nodeIDs)
+}
+
+export async function ResetNodeByName(...nodeNames) {
+    const setupClient = await new SetupClient(await GetConnection())
+    const nodeIDs = (await setupClient.MakeChainState()).GetNodeIDsByName(...nodeNames)
+    return await ResetNode(...nodeIDs)
 }
