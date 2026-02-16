@@ -34,7 +34,7 @@ en.CompNodeMaster=Install NodeMaster (Service & GUI)
 en.TypeCustom=Custom Installation
 en.MsgSelectAtLeast=Please select at least one component.
 en.MsgRenameFail=Warning: Unable to rename config file: %1
-en.AlreadyInstalled=The application is already installed. Uninstall existing version first?
+en.AlreadyInstalled=The application is already installed. Do you want to uninstall existing version?
 en.UninstallAborted=Uninstall cancelled by user.
 en.ProcessRunning=The following processes are still running:%n%n%1%n%nPlease close them manually or choose "Force Terminate" to proceed.
 en.ForceTerminate=Force Terminate
@@ -59,7 +59,7 @@ zhcn.CompNodeMaster=安装 NodeMaster（含服务与 GUI）
 zhcn.TypeCustom=自定义安装
 zhcn.MsgSelectAtLeast=请至少选择一个要安装的组件。
 zhcn.MsgRenameFail=警告：无法重命名配置文件: %1
-zhcn.AlreadyInstalled=检测到程序已经安装。是否先卸载现有版本？
+zhcn.AlreadyInstalled=检测到程序已经安装。是否卸载现有版本？
 zhcn.UninstallAborted=用户取消了卸载操作。
 zhcn.ProcessRunning=以下进程仍在运行：%n%n%1%n%n请手动关闭，或选择“强制终止”继续卸载。
 zhcn.ForceTerminate=强制终止
@@ -84,7 +84,7 @@ zhtw.CompNodeMaster=安裝 NodeMaster（含服務與 GUI）
 zhtw.TypeCustom=自訂安裝
 zhtw.MsgSelectAtLeast=請至少選擇一個要安裝的元件。
 zhtw.MsgRenameFail=警告：無法重新命名設定檔: %1
-zhtw.AlreadyInstalled=檢測到程式已經安裝。是否先解除安裝現有版本？
+zhtw.AlreadyInstalled=檢測到程式已經安裝。是否解除安裝現有版本？
 zhtw.UninstallAborted=使用者取消了解除安裝操作。
 zhtw.ProcessRunning=以下處理程序仍在執行：%n%n%1%n%n請手動關閉，或選擇「強制終止」繼續解除安裝。
 zhtw.ForceTerminate=強制終止
@@ -154,6 +154,11 @@ end;
 function GetNodeMasterConfigPath(Param: String): String;
 begin
   Result := ExpandConstant('{commonappdata}\chainnode\NodeMaster');
+end;
+
+function GetSetupConfigPath(Param: String): String;
+begin
+  Result := ExpandConstant('{commonappdata}\chainnode\SetupService');
 end;
 
 // ---------------- 配置文件保护：存在则跳过 ----------------
@@ -427,6 +432,24 @@ begin
   Log('Configuration data deletion completed');
 end;
 
+
+// ---------------- 新增：删除setup数据----------------
+procedure DeleteSetupData;
+var
+  SetupConfigDir: String;
+begin
+  // 定义路径
+  SetupConfigDir := GetSetupConfigPath('');
+  
+  if DirExists(SetupConfigDir) then
+  begin
+    Log('Deleting setup directory: ' + SetupConfigDir);
+    SafeDeleteDirRecursive(SetupConfigDir);
+  end;
+  
+  Log('setup data deletion completed');
+end;
+
 // ---------------- 安装流程控制 ----------------
 function InitializeSetup(): Boolean;
 var
@@ -531,6 +554,9 @@ begin
     begin
       DeleteConfigurationData;
     end;
+    
+    // 删除setup service 文件
+    DeleteSetupData;
     
     // 5. 报告需要重启删除的文件
     if (RestartDeleteList <> nil) and (RestartDeleteList.Count > 0) then
