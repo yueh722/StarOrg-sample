@@ -168,7 +168,7 @@ export class SetupClient {
     async PurgeChain() {
         const chainState = await this.MakeChainState();
         if (!chainState.IsInitialized()){
-            return makeError('chain has not been initialized, no need to reset;')
+            //return makeError('chain has not been initialized, no need to reset;')
         }
 
         const result = await this.callMethod('BroadcastPurgeChainNode', {});

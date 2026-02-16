@@ -48,6 +48,10 @@ en.UninstallComplete=Uninstallation completed successfully.
 en.UninstallCompleteWithRestart=Uninstallation completed. A system restart is required to fully remove locked files.
 en.MsgServiceExecFail=Failed to execute service command: %1
 en.MsgServiceCmdFail=Service command failed: %1 %2 (exit code: %3)
+; 新增卸载确认提示文本
+en.AskDeleteConfig=Do you want to delete the configuration files and data directory?%n%nThis will remove:%n- configuration files%n-  log files%n%nThis action cannot be undone!
+en.DeleteConfigYes=Yes, delete all
+en.DeleteConfigNo=No, keep them
 
 zhcn.AppNameLabel=ChainCode Node Suite
 zhcn.CompNodeAgent=安装 NodeAgent（含服务、GUI 及 CometBFT）
@@ -69,6 +73,10 @@ zhcn.UninstallComplete=卸载完成。
 zhcn.UninstallCompleteWithRestart=卸载完成。需要重启系统以彻底清除被锁定的文件。
 zhcn.MsgServiceExecFail=服务命令执行失败: %1
 zhcn.MsgServiceCmdFail=服务命令失败: %1 %2 (返回码: %3)
+; 新增卸载确认提示文本
+zhcn.AskDeleteConfig=是否删除配置文件和数据目录？%n%n这将删除：%n- 配置文件%n- 日志文件%n%n此操作不可撤销！
+zhcn.DeleteConfigYes=是，删除全部
+zhcn.DeleteConfigNo=否，保留它们
 
 zhtw.AppNameLabel=ChainCode Node Suite
 zhtw.CompNodeAgent=安裝 NodeAgent（含服務、GUI 及 CometBFT）
@@ -90,6 +98,10 @@ zhtw.UninstallComplete=解除安裝完成。
 zhtw.UninstallCompleteWithRestart=解除安裝完成。需要重新啟動系統以徹底清除被鎖定的檔案。
 zhtw.MsgServiceExecFail=服務命令執行失敗: %1
 zhtw.MsgServiceCmdFail=服務命令失敗: %1 %2 (返回碼: %3)
+; 新增卸载确认提示文本
+zhtw.AskDeleteConfig=是否刪除設定檔和資料目錄？%n%n這將刪除：%n- 設定檔%n- 日志檔案%n%n此操作無法撤銷！
+zhtw.DeleteConfigYes=是，刪除全部
+zhtw.DeleteConfigNo=否，保留它們
 
 [Types]
 Name: "custom"; Description: "{cm:TypeCustom}"; Flags: iscustom
@@ -130,6 +142,8 @@ const
 var
   InstallNodeAgent, InstallNodeMaster: Boolean;
   RestartDeleteList: TStringList;
+  // 新增：标记是否删除配置文件
+  DeleteConfigFiles: Boolean;
 
 // ---------------- 路径函数 ----------------
 function GetNodeAgentConfigPath(Param: String): String;
@@ -287,7 +301,7 @@ begin
     if IsProcessRunning(Processes[I]) then
     begin
       if not TerminateProcessByName(Processes[I]) then
-        MsgBox(FmtMessage(CustomMessage('TerminateFailed'), [Processes[I]]), mbError, MB_OK);
+        //MsgBox(FmtMessage(CustomMessage('TerminateFailed'), [Processes[I]]), mbError, MB_OK);
     end;
   end;
   
@@ -393,6 +407,26 @@ begin
     Log('Failed to remove directory: ' + DirName);
 end;
 
+// ---------------- 新增：删除配置文件和ProgramData\chainnode目录 ----------------
+procedure DeleteConfigurationData;
+var
+  ChainNodeDir, NodeAgentConfigDir, NodeMasterConfigDir: String;
+begin
+  // 定义路径
+  ChainNodeDir := ExpandConstant('{commonappdata}\chainnode');
+  NodeAgentConfigDir := GetNodeAgentConfigPath('');
+  NodeMasterConfigDir := GetNodeMasterConfigPath('');
+
+  // 递归删除整个chainnode目录
+  if DirExists(ChainNodeDir) then
+  begin
+    Log('Deleting configuration directory: ' + ChainNodeDir);
+    SafeDeleteDirRecursive(ChainNodeDir);
+  end;
+  
+  Log('Configuration data deletion completed');
+end;
+
 // ---------------- 安装流程控制 ----------------
 function InitializeSetup(): Boolean;
 var
@@ -432,11 +466,15 @@ begin
   if CurStep = ssPostInstall then
   begin
     if InstallNodeAgent then 
+    begin
       RunServiceCommand('NodeAgent.exe', 'service install');
       RunServiceCommand('NodeAgent.exe', 'service start');
+    end;
     if InstallNodeMaster then 
+    begin
       RunServiceCommand('NodeMaster.exe', 'service install');
       RunServiceCommand('NodeMaster.exe', 'service start');
+    end;
   end;
 end;
 
@@ -455,6 +493,8 @@ end;
 
 // ---------------- 卸载流程控制 ----------------
 function InitializeUninstall(): Boolean;
+var
+  Response: Integer;
 begin
   // 1. 检测并处理进程
   if not CheckAndTerminateProcesses then
@@ -465,7 +505,16 @@ begin
   
   // 2. 停止并移除服务
   StopAndRemoveServices;
+
+  // 3. 新增：询问用户是否删除配置文件和数据目录
+  Response := MsgBox(
+    CustomMessage('AskDeleteConfig'), 
+    mbConfirmation, 
+    MB_YESNO or MB_DEFBUTTON2  // 默认选择"否"，避免误删
+  );
   
+  DeleteConfigFiles := (Response = IDYES);
+
   Result := True;
 end;
 
@@ -476,8 +525,14 @@ begin
     // 3. 安全删除安装目录（常规删除失败时才用 MoveFileEx）
     if DirExists(ExpandConstant('{app}')) then
       SafeDeleteDirRecursive(ExpandConstant('{app}'));
+
+    // 4. 新增：如果用户确认删除，则删除配置文件和chainnode目录
+    if DeleteConfigFiles then
+    begin
+      DeleteConfigurationData;
+    end;
     
-    // 4. 报告需要重启删除的文件
+    // 5. 报告需要重启删除的文件
     if (RestartDeleteList <> nil) and (RestartDeleteList.Count > 0) then
     begin
       MsgBox(FmtMessage(CustomMessage('ScheduledRestartDelete'), [RestartDeleteList.Text]), mbInformation, MB_OK);
@@ -486,7 +541,7 @@ begin
     else
       MsgBox(CustomMessage('UninstallComplete'), mbInformation, MB_OK);
     
-    // 5. 清理资源
+    // 6. 清理资源
     if RestartDeleteList <> nil then
       RestartDeleteList.Free;
   end;

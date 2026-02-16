@@ -45,6 +45,7 @@ export async function InitializeChainOnSingleMachine(useLoopIp, chainID, ...node
     const argNodeList = chainState.ActivatedNodesByName(...nodeNames).map(node => {
 
         const argNode = {
+            // you can change node_name while initializing chain
             node_name: node.node_info.node_name,
             node_id: node.node_info.node_id,
 
@@ -96,7 +97,9 @@ export async function InitializeChainOnMultiMachine(chainID, ...nodeNames) {
     //build argNodeList
     const argNodeList = chainState.ActivatedNodesByName(...nodeNames).map(node => {
         return {
+            // you can change node_name while initializing chain
             node_name: node.node_info.node_name,
+
             node_id: node.node_info.node_id,
 
             // set nodeIp
@@ -148,7 +151,7 @@ export async function AddChainNodeOnSingleMachine(useLoopIp, ...nodeNames) {
     const argNodeList = chainState.UninitializedNodes()
         //make a new nodeList that contains nodeNames
         .filter(node => {
-            return nodeNames.some(item => item.includes(node.node_info.node_name))
+            return nodeNames.includes(node.node_info.node_name)
         })
         //build a argNodeList from a list of nodeInfo
         .map(node => {

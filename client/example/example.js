@@ -41,7 +41,7 @@ async function DeployHalfFromScratch(useLoopIp = true){
         // give few seconds to let validator nodes finish starting procedure. the more node you initialized one time,
         // the more time you need to wait
         await oksleep(5),
-        await AddChainNodeOnSingleMachine(useLoopIp,'node50', 'node40', 'node20', 'node30'),
+        await AddChainNodeOnSingleMachine(useLoopIp,'node5', 'node40', 'node20', 'node30'),
 
         //start node3, node4
         //await StartNodeByName('node3', 'node4'),
@@ -107,7 +107,7 @@ for (let i = 0; i < 100; i++) {
    //break
 
     const results = [
-        ...await DeployHalfFromScratch(),
+        ...await DeployHalfFromScratch(true),
         //await DelayRestartAllNodes(),
         await GetServerAddrOfABCIApp(),
         await GetSetupCommandHistory(),
