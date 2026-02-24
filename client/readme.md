@@ -1,0 +1,9 @@
+# client 介绍
+
+client 指的是通过JavaScript API 连接到master实现node管理功能的程序。其中src目录包含了API的接口实现，example目录包含了使用API接口实现的一些建议封装功能。
+其中example目录中的server.js用于查询当前可用的cometbft app的web service地址和token。example.js 中包含了测试初始化，节点管理的功能。
+
+
+为何要单独提供server.js，是因为master的验证中使用了hmac，而这个功能无法在浏览器和nodejs环境中通用。所以暂时分离实现，通过server.js中转一下。
+
+该工程中的js代码同样是使用AI实现的，所以在用于生产环境的代码之前，请尽可能的检查改代码以保证安全性。
