@@ -21,6 +21,17 @@
       </div>
     </div>
 
+    <div class="server-section">
+      <h1>Query Tx</h1>
+      <div class="server-controls">
+        <div class="url-group">
+          <label for="tx-hash">hash:</label>
+          <input id="tx-hash" v-model="txHashes" type="text" required placeholder="多个hash使用,分割"/>
+          <button @click="queryTxByHash">Query</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 消息区域 -->
     <label v-if="message" :class="messageClass">{{ message }}</label>
 
@@ -106,7 +117,7 @@
 import {
   getDefaultPerson, getFetchURL,
   getNewPerson, getServers,
-  isPersonRevokedRemote, fetchServerListFromURL, setServer, getServer,
+  isPersonRevokedRemote, fetchServerListFromURL, setServer, getServer, getIdentityByHash,
 } from '@/api/identity.js';
 import {
   localInsertPerson,
@@ -150,6 +161,7 @@ export default {
       fetchURL: getFetchURL(),
       serverlist: getServers(),
       selectedServer: getServer(), // 当前选中的服务器
+      txHashes: '',
     };
   },
   computed: {
@@ -230,6 +242,29 @@ export default {
         } else {
           this.selectedServer = '';
         }
+      }
+    },
+
+    async queryTxByHash() {
+      try {
+        await this.checkSelectedServer();
+        const input = document.getElementById('tx-hash')
+        const val = input.value.trim()
+
+        if (!val) {
+          input.setCustomValidity('hash不能为空')
+          input.reportValidity() // 弹出原生提示气泡
+          return
+        }
+
+        const hashes = this.txHashes.split(",")
+        const res = await getIdentityByHash(hashes);
+
+        this.message = '查询tx成功！' + '\n' + JSON.stringify(res);
+        this.messageClass = 'success';
+      } catch (error) {
+        this.message = '查询tx失败，' + error;
+        this.messageClass = 'error';
       }
     },
     async handleAddPerson() {

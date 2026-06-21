@@ -313,6 +313,37 @@ export async function revokeIdentity(id) {
   }
 }
 
+export async function getIdentityByHash(...hashes) {
+  try {
+    const response = await axiosInstance.post(`/did/history`, {"hashes": hashes}, {
+      headers: {
+        'Content-Type': 'application/json', // 确保请求头为 JSON
+      },
+    });
+
+    // example response from history
+    /*
+    {
+      "B03E5E7CD5424265F767F61E8DFBA7BDC9FB716074C5603A4F44F3A33DF9BD4A": {
+          "error": "error message" //not empty if failure happenes on this tx
+      },
+      "FF3E5E7CD5424265F767F61E8DFBA7BDC9FB716074C5603A4F44F3A33DF9BDD0": {
+          "raw_data": {...}, // succeed
+      },
+    }
+    */
+
+    if (response.data.error) {
+      throw (response.data.error);
+    }
+
+    return response.data;
+  } catch (error) {
+    console.error('failed to get identity by hash:', error);
+    throw error;
+  }
+}
+
 //////////////////////////////////////////////////////////////////////////
 //
 // identity & person functions
@@ -371,3 +402,4 @@ export function convertIdentityToPerson(identity) {
     //throw error;
   }
 }
+
