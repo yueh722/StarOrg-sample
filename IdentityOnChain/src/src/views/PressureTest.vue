@@ -45,11 +45,14 @@
 <script>
 import {
   createIdentity as addPerson,
-  searchIdentity as queryPerson,
+  loadIdentities as queryPerson,
   updateIdentity as updatePerson,
   revokeIdentity as deletePerson,
   getDefaultPerson, getFetchURL, fetchServerListFromURL, getServers, setServer as setServerAPI, setServer, getServer,
+  getUserId, searchIdentities, searchTodayIdentities, loadIdentities, updateIdentity,
 } from '@/api/identity.js';
+import {localInsertPerson} from "@/api/personList.js";
+
 
 export default {
   data() {
@@ -64,6 +67,8 @@ export default {
       fetchURL: getFetchURL(),
       serverlist: getServers(),
       selectedServer: getServer(), // 当前选中的服务器
+      writeLock: Promise.resolve(),
+      lastIndex: 0
     };
   },
   computed: {
@@ -114,6 +119,26 @@ export default {
       }
     },
 
+    async safeWriteGlobalArr(updater) {
+      // 抢占锁队列
+      const prevTask = this.writeLock;
+      let releaseLock;
+      this.writeLock = new Promise(resolve => releaseLock = resolve);
+
+      // 等待前面所有写入完成再执行
+      await prevTask;
+      try {
+        this.identities = updater([...this.identities]);
+      } finally {
+        // 无论成功失败都释放锁，防止死锁
+        releaseLock();
+      }
+    },
+
+    sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    },
+
     async runTests() {
       this.identities = []; // 清空 identities
       this.lock = false; // 重置锁标志
@@ -138,42 +163,48 @@ export default {
         this.identities = await this.createIdentities(params.iterations);
         this.log += `${this.identities.length} identities created.\n`;
 
-        function sleep(ms) {
-          return new Promise((resolve) => setTimeout(resolve, ms));
-        }
-
-        await sleep(5000);
+        await this.sleep(5000);
 
         // 2. 并发测试 update
         this.log += 'Running updatePerson pressure test...\n';
         const updateResults = await this.runPressureTest(
-            async () => {
+            async (index) => {
               try {
+                //this.outputTime(index)
+                await this.sleep(this.getRandom5000());
+                //this.outputTime(index)
+
                 const identity = this.getRandomIdentity();
-                const updatedPerson = { ...identity, name: this.generatePerson().name };
+                const updatedPerson = { ...identity, name: this.safeRandom8() };
                 const res = await updatePerson(updatedPerson);
-                this.log += `update identity: ${identity.id}, ${updatedPerson.name}, hash: ${res.hash}\n`;
-                return res;
+
+                //await this.safeWriteGlobalArr(old => this.updateIdentity(old, updatedPerson));
+                const update_result = await this.updateIdentity(updatedPerson);
+
+                this.log += `update identity: ${identity.id}, name: ${updatedPerson.name}, hash: ${res.hash}, result: ${update_result}\n`;
+                return updatedPerson;
               }catch (error) {
                 this.log += `update failure: ${error}\n`;
                 //throw error;
               }
             },
             params,
-            200
+            100
         );
         this.log += `updatePerson test completed in ${updateResults.duration}ms.\n`;
+
+        await this.sleep(1000 * 5);
 
         // 3. 并发测试 query
         this.log += 'Running queryPerson pressure test...\n';
         const queryResults = await this.runPressureTest(
-            async () => {
+            async (index) => {
               const identity = this.getRandomIdentity();
               const remote = await queryPerson(identity.id);
-              if (remote.id !== identity.id) {
-                this.log += `failed to query identity: ${identity.id} ${remote.name}\n`;
+              if (remote.id !== identity.id || remote.name !== identity.name) {
+                this.log += `failed to query identity: ${identity.id} ${remote.name}, name: ${identity.name}\n`;
               }else {
-                this.log += `query identity: ${identity.id} ${remote.name}; matched\n`;
+                this.log += `query identity: ${identity.id} name: ${remote.name}; matched\n`;
               }
             },
             params,
@@ -181,10 +212,34 @@ export default {
         );
         this.log += `queryPerson test completed in ${queryResults.duration}ms.\n`;
 
+        // search 测试
+        this.log += 'Running searchTodayIdentities test...\n';
+        const ids = await searchTodayIdentities();
+        this.log += `total today: ${ids.length}, this round: ${params.iterations}\n`;
+
+        let matchedCount = 0;
+        let dismatchedCount = 0;
+        for (const id of ids) {
+          const person = id.document
+          const localPerson = this.getIdentity(person.id);
+          if (localPerson == null) {
+            continue;
+          }
+          const matched = (person.name === localPerson.name)
+          this.log += `found identity: ${person.id} revoked: ${id.revoked??'false'}
+           name: ${person.name} gender: ${person.gender}
+           department: ${person.department} status: ${person.status}
+           matched: ${matched}\n`;
+
+          matched ? matchedCount++ : dismatchedCount++;
+        }
+        this.log += `check ${matchedCount + dismatchedCount} persons, matched: ${matchedCount}, dismatched: ${dismatchedCount}.\n`;
+        this.log += `searchTodayIdentities test completed.\n`;
+
         // 4. 最后进行 revoke（删除）
         this.log += 'Running deletePerson pressure test...\n';
         const deleteResults = await this.runPressureTest(
-            async () => {
+            async (index) => {
               try {
                 const identity = await this.getAndRemoveIdentity(); // 获取并移除 identity
                 if (!identity) {
@@ -216,14 +271,54 @@ export default {
         const res = await addPerson(person); // 调用 API 创建 identity
         identities.push(person);
         this.log += `Created identity: ${person.id}, hash: ${res.hash}\n`;
+        await this.sleep(50);
       }
       return identities;
     },
 
+    getIdentity(id){
+      const targetIndex = this.identities.findIndex(item => item.id === id);
+      if (targetIndex > -1) {
+        return this.identities[targetIndex];
+      }
+
+      return null
+    },
+
     // 从保存的 identities 中随机获取一个
     getRandomIdentity() {
-      const randomIndex = Math.floor(Math.random() * this.identities.length);
+      let randomIndex = 0
+
+      while (this.lastIndex == randomIndex) {
+        randomIndex = Math.floor(Math.random() * this.identities.length);
+      }
+
+      this.lastIndex = randomIndex;
       return this.identities[randomIndex];
+    },
+
+    fnupdateIdentity(identities, person) {
+      const targetIndex = identities.findIndex(item => item.id === person.id);
+      if (targetIndex !== -1) {
+        identities[targetIndex] = person;
+      }
+
+      return identities
+    },
+
+    async updateIdentity(person) {
+      let res = false
+      while (this.lock) {
+        await new Promise((resolve) => setTimeout(resolve, 1000)); // 等待锁释放
+      }
+      this.lock = true; // 加锁
+      const targetIndex = this.identities.findIndex(item => item.id === person.id);
+      if (targetIndex !== -1) {
+        this.identities[targetIndex] = person;
+        res = true;
+      }
+      this.lock = false; // 释放锁
+      return res
     },
 
     // 从 identities 中获取并移除一个元素
@@ -236,6 +331,7 @@ export default {
       this.lock = false; // 释放锁
       return identity;
     },
+
     // 运行压力测试
     async runPressureTest(apiFunc, params, mockReply) {
       const { iterations, interval, randomInterval, concurrency } = params;
@@ -243,7 +339,7 @@ export default {
       const startTime = Date.now();
 
       for (let i = 0; i < iterations; i++) {
-        const requests = Array.from({ length: concurrency }, () => apiFunc());
+        const requests = Array.from({ length: concurrency }, () => apiFunc(i));
         const batchResults = await Promise.all(requests);
         results.push(...batchResults.filter((result) => result !== null)); // 过滤掉无效结果
 
@@ -261,10 +357,32 @@ export default {
     },
     // 生成随机的 person 对象
     generatePerson() {
-      const id = Math.random().toString(36).substring(7); // 生成随机 ID
+      const id = getUserId();
       const name = `Person_${id}`; // 生成随机名称
-      return { ...getDefaultPerson(), id: id, name: name };
+      return { ...getDefaultPerson(), id: id, name: name, department: 'dev' };
     },
+
+    safeRandom8() {
+      const arr = new Uint32Array(8);
+      crypto.getRandomValues(arr);
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      let str = '';
+      arr.forEach(num => {
+        str += chars[num % chars.length];
+      })
+      return str;
+    },
+
+    getRandom5000() {
+      // Math.random() → [0,1)
+      return Math.floor(Math.random() * 500);
+    },
+
+    outputTime(id) {
+      const now = new Date();
+      const fullTime = `${now.getHours()}:${now.getMinutes()}:${now.getSeconds()}.${now.getMilliseconds()}`;
+      this.log += `${id}_${fullTime}\n`;
+    }
   },
 };
 </script>

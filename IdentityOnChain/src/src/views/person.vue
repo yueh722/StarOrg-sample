@@ -64,7 +64,7 @@
             </label>
           </div>
           <div class="form-buttons">
-            <button type="submit">{{ isEditing ? '更新' : '新增' }}</button>
+            <button type="submit">{{ '新增' }}</button>
             <button type="button" @click="handleUpdatePerson" :disabled="!isEditing || !isModified">修改</button>
             <button type="button" @click="handleRevokeAllPersons">删除全部</button>
             <button type="button" @click="resetForm()" :disabled="!selectedPersonId && !person.id">重置</button>
@@ -88,7 +88,7 @@
               </label>
             </div>
             <div class="button-group">
-              <button type="button" @click="handleFetchAllPersons()">获取所有人员信息</button>
+              <button type="button" @click="handleFetchAllPersonsCreatedToday()">获取今天新增的人员信息</button>
             </div>
           </div>
 
@@ -117,7 +117,7 @@
 import {
   getDefaultPerson, getFetchURL,
   getNewPerson, getServers,
-  isPersonRevokedRemote, fetchServerListFromURL, setServer, getServer, getIdentityByHash,
+  fetchServerListFromURL, setServer, getServer, getIdentityByHash, searchTodayIdentities, searchTodayIds,
 } from '@/api/identity.js';
 import {
   localInsertPerson,
@@ -129,10 +129,9 @@ import {
 } from '@/api/personList';
 import {
   createIdentity,
-  getAllIdentity,
-  isPersonRevoked,
   revokeIdentity,
-  searchIdentity,
+  searchIdentities,
+  loadIdentities,
   updateIdentity
 } from "@/api/identity.js";
 
@@ -215,7 +214,11 @@ export default {
     },
 
     checkSelectedServer() {
-      if (this.selectedServer.length === 0) {
+      try {
+        if (this.selectedServer.length === 0) {
+          throw('choose a server first')
+        }
+      }catch (e) {
         throw('choose a server first')
       }
     },
@@ -267,9 +270,10 @@ export default {
         this.messageClass = 'error';
       }
     },
+
     async handleAddPerson() {
       try {
-        await this.checkSelectedServer();
+        this.checkSelectedServer();
         const res = await createIdentity(this.person);
         localInsertPerson(this.person);
         this.message = '新增成功！' + '\n' + JSON.stringify(res);
@@ -282,7 +286,7 @@ export default {
     },
     async handleUpdatePerson() {
       try {
-        await this.checkSelectedServer();
+        this.checkSelectedServer();
         const res = await updateIdentity(this.person);
         localUpdatePerson(this.person);
         this.message = '修改成功！' + '\n' + JSON.stringify(res);
@@ -295,7 +299,7 @@ export default {
     },
     async handleDeletePerson(id) {
       try {
-        await this.checkSelectedServer();
+        this.checkSelectedServer();
         const res = await revokeIdentity(id);
         localRemovePerson(id);
         this.message = '删除成功！' + '\n' + JSON.stringify(res);
@@ -308,8 +312,8 @@ export default {
     },
     async selectPerson(person) {
       try {
-        await this.checkSelectedServer();
-        const remotePerson = await searchIdentity(person.id)
+        this.checkSelectedServer();
+        const remotePerson = await loadIdentities(person.id)
         this.selectedPersonId = remotePerson.id;
         this.person = { ...remotePerson };
         this.isEditing = true;
@@ -318,12 +322,13 @@ export default {
         this.messageClass = 'error';
       }
     },
-    async handleFetchAllPersons() {
+
+    async handleFetchAllPersonsCreatedToday() {
       try{
-        await this.checkSelectedServer();
+        this.checkSelectedServer();
         cleanupLocalPersonList()
         let total = 0, revokedCount = 0, normalCount = 0, loadedCount = 0;
-        const ids = await getAllIdentity();
+        const ids = await searchTodayIds();
         normalCount = ids.normal.length;
         revokedCount = ids.revoked.length;
         total = normalCount + revokedCount;
@@ -331,7 +336,7 @@ export default {
         this.message = logText
         this.messageClass = 'info';
         for (const id of ids.normal) {
-          const normalPerson = await searchIdentity(id)
+          const normalPerson = await loadIdentities(id)
           localInsertPerson(normalPerson);
           this.refresh(normalPerson);
           loadedCount++
@@ -339,7 +344,7 @@ export default {
         }
         if (this.showRevokedPerson) {
           for (const id of ids.revoked) {
-            const revokedPerson = await searchIdentity(id)
+            const revokedPerson = await loadIdentities(id)
             localInsertPerson(revokedPerson);
             this.refresh(revokedPerson);
             loadedCount++
@@ -355,7 +360,7 @@ export default {
     },
     async handleRevokeAllPersons() {
       try{
-        await this.checkSelectedServer();
+        this.checkSelectedServer();
         var persons = localGetPersonList().slice(0)
         for (const i in persons) {
           await revokeIdentity(persons[i].id)

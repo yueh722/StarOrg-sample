@@ -123,21 +123,118 @@ export async function createIdentity(person) {
   }
 }
 
+const id_prefix = 'user:new:';
+
+/**
+ * 搜索今天创建的Identities
+ * @returns {Promise} - Identity array
+ */
+export async function searchTodayIdentities(){
+  try {
+    const desc = true
+    let endTime = formatTodayStringPair()[1]
+    let startTime = formatTodayStringPair()[0]
+    let allIds = []
+
+    for (let round = 1;;round++){
+      const idPartial = await searchIdentities({
+        prefix:    id_prefix,
+
+        // 前缀与起始时间完全一致的记录，都会被纳入结果中.
+        // 20260623_090000, 20260623_0900001234 两种时间格式都接受，因为bookmark中的时间格式是后者
+        startTime: startTime,
+
+        // 前缀与结束时间（endTime）完全一致的记录，将从结果集中剔除.
+        // 20260623_090000, 20260623_0900001234 两种时间格式都接受，因为bookmark中的时间格式是后者
+        endTime:   endTime,
+
+        order:     desc?'desc':'asc',
+        limit:     100,
+      })
+
+      const len = idPartial.value?.length ?? 0
+      const lastId = idPartial.value?.at(-1).id ?? undefined
+      console.log("round:", round, ", got:", len, ", limit:", 100, ", bookmark:", idPartial.bookmark, " , lastId:", lastId)
+
+      allIds.push(...idPartial.value??[]);
+
+      if (idPartial.bookmark == null || idPartial.bookmark === '') {
+        // bookmark 是查询下一页所需的标识ID。
+        // a. 采用降序（desc）排序时，bookmark 等于 idPartial.value 中的最后一条数据ID,
+        //    所以此时使用bookmark和idPartial.value最后一条记录id中的时间作为下一次查询的endTime的效果是一样的。
+        // b. 采用升序（asc）排序时，bookmark 为下一页第一条数据的ID字符串。
+        // c. 若 bookmark 为空，则代表在当前筛选条件下，已查询到结果集的最后一页。
+        break
+      }
+
+      const nextFilterTime = idPartial.bookmark?.split(":").pop()
+      if (desc) {
+        // use either bookmark or last element of idTrunk.value, because they are identical.
+        // endTime = idPartial.value[-1]
+        endTime = nextFilterTime
+      } else {
+        // must use bookmark to do next search.
+        startTime = nextFilterTime
+      }
+    }
+
+    //allIds holds all result of identities at this moment.
+    return allIds
+
+  } catch (error) {
+    console.error('failed to fetch identities:', error);
+    throw error;
+  }
+}
+
+
+/*
+* 搜索今天创建的identities的ids
+* @returns {Promise} - array that have id and revoke-state
+ */
+export async function searchTodayIds(){
+  try {
+    const allIds = await searchTodayIdentities();
+
+    const normalPersons = [];
+    const revokedPersons = [];
+
+    allIds.forEach(item => {
+      if (item.revoked) {
+        revokedPersons.push(item.id);
+      } else if (item.id != "") {
+        normalPersons.push(item.id);
+      }
+    });
+
+    return {
+      normal: normalPersons,
+      revoked: revokedPersons
+    }
+  }catch(error){
+    console.error('failed to fetch identities:', error);
+    throw error;
+  }
+}
+
 /**
  * 查询人员
- * @param {string} id - 人员 ID
- * @returns {Promise} - 请求结果
+ * @param {object} filter - 搜索条件
+ * @returns {Promise} - 返回对象数组
  */
-export async function searchIdentity(id) {
+export async function searchIdentities(filter) {
   try {
-    const response = await axiosInstance.get(`/did/search/${id}`);
+    const response = await axiosInstance.post(`/did/search`, filter, {
+      headers: {
+        'Content-Type': 'application/json', // 确保请求头为 JSON
+      },
+    });
 
     // response from search
     // succeed
     /*
     {
-      "key": "key1",
-      "value": value,
+      "value": [{...},{...},...],
     }
 
     //failure
@@ -150,12 +247,7 @@ export async function searchIdentity(id) {
       throw (response.data.error);
     }
 
-    let person = convertIdentityToPerson(response.data.value);
-    if (response.data.value.revoked){
-      person.name += revokedFlag
-    }
-
-    return person;
+    return response.data;
 
   } catch (error) {
     console.error('failed to search identity:', error);
@@ -165,11 +257,12 @@ export async function searchIdentity(id) {
 
 export async function isPersonRevokedRemote(id) {
   try {
-    const response = await axiosInstance.get(`/did/search/${id}`);
-    if (response.data.value.id === '') {
+    const response = await loadIdentities(id);
+    const person = response.data.value[0]
+    if (person.id === '') {
       throw new Error(id + ' not exist');
     }
-    return (response.data.value.revoked)
+    return (person.revoked)
   } catch (error) {
     console.error('failed to find identity:', error);
     throw error;
@@ -181,25 +274,23 @@ export function isPersonRevoked(person) {
 }
 
 /**
- * 查询所有人员
- * * @returns {Object} - 返回一个对象，包含两个数组：
- *  *   - normal: value 为 normal 状态 的 person id 数组
- *  *   - revoked: value 为 revoked 状态 的 person id 数组
+ * 查询指定id的人员
+ * * @param id array
+ * * @returns {Object} - 返回对象数组
  */
-export async function getAllIdentity() {
+export async function loadIdentities(...ids) {
   try {
-    const response = await axiosInstance.get(`/did/list`);
+    const response = await axiosInstance.post(`/did/load`, {ids: ids},{
+      headers: {
+        'Content-Type': 'application/json', // 确保请求头为 JSON
+      },
+    });
 
-    // response from list
+    // response from load
     // succeed
     /*
     {
-      "key": "key1",
-      "value": {
-        "id1": 1,
-        "id2": 0,  //revoked
-        "id3": 1,
-      },
+      "value": [{...},{...},...],
     }
 
     //failure
@@ -212,29 +303,24 @@ export async function getAllIdentity() {
       throw (response.data.error);
     }
 
-
-
-    //const IdsArray = Object.keys(response.data.value);
-    //return IdsArray;
-    //return response.data.value;
-
-    const normalPersons = [];
-    const revokedPersons = [];
-
-    Object.entries(response.data.value).forEach(([id,state]) => {
-      if (state === 0) {
-        revokedPersons.push(id);
-      } else if (state === 1) {
-        normalPersons.push(id);
+    let value = []
+    response.data.value.forEach((item) => {
+      let person = item.document;
+      if (item.revoked){
+        person.name += revokedFlag
       }
-    });
 
-    return {
-      normal: normalPersons,
-      revoked: revokedPersons
+      value.push(person);
+    })
+
+    if (value.length === 1) {
+      return value[0];
     }
+
+    return value
+
   } catch (error) {
-    console.error('failed to get all identities:', error);
+    console.error('failed to get identities:', error);
     throw error;
   }
 }
@@ -349,11 +435,11 @@ export async function getIdentityByHash(...hashes) {
 // identity & person functions
 //
 export function convertPersonToIdentity(person) {
-  const jstr = JSON.stringify(person)
+  //const jstr = JSON.stringify(person)
 
   return {
     id: person.id,
-    document: btoa(encodeURIComponent(jstr)),
+    document: person,
     hashcode: '',
     revoked: false
   }
@@ -374,8 +460,9 @@ export function generateGuid() {
   );
 }
 
-function getUserId() {
-  return generateGuid().substring(0, 8);
+
+export function getUserId() {
+  return id_prefix + formatNowStringLong();
 }
 
 export function getNewPerson(person) {
@@ -388,10 +475,12 @@ export function convertIdentityToPerson(identity) {
     //validate identity's hashcode here if we need to
     //identity.hashcode
 
-    const utf8String = atob(identity.document); // 解码 Base64
-    const jsonString = decodeURIComponent(utf8String); //UTF8 -> json string
+    //const utf8String = atob(identity.document); // 解码 Base64
+    //const jsonString = decodeURIComponent(utf8String); //UTF8 -> json string
+    //return JSON.parse(jsonString);
 
-    return JSON.parse(jsonString);
+    return JSON.parse(identity.document);
+    //return identity.document
   } catch (error) {
     //console.error("Failed to convert identity to person:", error);
     //return a person object without any other details but id.
@@ -403,3 +492,41 @@ export function convertIdentityToPerson(identity) {
   }
 }
 
+// format: yyyyMMdd_hhmmssSSSS
+function formatTimeString(date) {
+  const now = date
+  // 年
+  const y = now.getFullYear();
+  // 月 补0
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  // 日
+  const d = String(now.getDate()).padStart(2, '0');
+  // 时
+  const h = String(now.getHours()).padStart(2, '0');
+  // 分
+  const mi = String(now.getMinutes()).padStart(2, '0');
+  // 秒
+  const s = String(now.getSeconds()).padStart(2, '0');
+
+  //毫秒
+  const ms = String(now.getMilliseconds()).padStart(4, '0');
+
+  return `${y}${m}${d}_${h}${mi}${s}${ms}`;
+}
+
+// format: yyyyMMdd_hhmmssSSSS
+function formatNowStringLong(){
+  return formatTimeString(new Date());
+}
+
+function formatTodayStringPair() {
+  const now = new Date();
+  // 今日零点 00:00:00
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+  // 今日结束 23:59:59
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+
+  const startStr = formatTimeString(start).slice(0, -4);
+  const endStr = formatTimeString(end).slice(0, -4);
+  return [startStr, endStr];
+}
