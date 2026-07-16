@@ -16,14 +16,33 @@ export async function fetchServerListFromURL(urlStr){
 }
 
 export function getServers(){
-  return cacheHosts.map(item => item.server);
+  return cacheHosts;
 }
 
 export function setServer(server){
   hosts = [server]
 
-  const token = cacheHosts.find(item => item.server === server)?.token || "";
-  console.log('select server:', server, token)
+  // 取得所選 server 的 Port
+  let selectedPort = '';
+  try {
+    selectedPort = new URL(server).port;
+  } catch (e) {
+    const match = server.match(/:(\d+)/);
+    if (match) selectedPort = match[1];
+  }
+
+  // 根據 Port 在 cacheHosts 中尋找對應的 token
+  const matchedItem = cacheHosts.find(item => {
+    try {
+      const portA = new URL(item.server).port;
+      return portA && portA === selectedPort;
+    } catch (e) {
+      return false;
+    }
+  }) || cacheHosts.find(item => item.server === server);
+
+  const token = matchedItem?.token || "";
+  console.log('select server:', server, 'matched port:', selectedPort, 'token:', token)
   setGlobalToken(token)
 }
 
@@ -40,7 +59,31 @@ export async function fetchServers(){
   try {
     const res = await fetch(fetchURL);
     const data = await res.json();
-    cacheHosts = data.data;
+
+    // 獲取 fetchURL 的 hostname (例如 192.168.171.194 或 localhost)
+    let fetchHostname = '';
+    try {
+      fetchHostname = new URL(fetchURL).hostname;
+    } catch (e) {
+      // 如果 fetchURL 是相對路徑，使用目前瀏覽器的 window.location.hostname
+      fetchHostname = window.location.hostname;
+    }
+
+    cacheHosts = data.data.map(item => {
+      let nodeServer = item.server;
+      // 如果 nodeServer 包含 127.0.0.1 或 localhost，將其替換為 fetchHostname
+      if (nodeServer.includes('127.0.0.1') || nodeServer.includes('localhost')) {
+        try {
+          const url = new URL(nodeServer);
+          url.hostname = fetchHostname;
+          nodeServer = url.toString().replace(/\/$/, ""); // 移除結尾的斜線
+        } catch (e) {
+          nodeServer = nodeServer.replace('127.0.0.1', fetchHostname).replace('localhost', fetchHostname);
+        }
+      }
+      return { ...item, server: nodeServer };
+    });
+
     console.info(cacheHosts);
     return getServers();
   } catch (err) {
@@ -125,61 +168,38 @@ export async function createIdentity(person) {
 
 const id_prefix = 'user:new:';
 
+// 返回今天日期字串 YYYYMMDD
+function formatTodayDateOnlyString() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}${m}${d}`;
+}
+
 /**
- * 搜索今天创建的Identities
+ * 搜索今天建立的所有 Identities（不限前綴，以今天日期前端筛選）
  * @returns {Promise} - Identity array
  */
 export async function searchTodayIdentities(){
   try {
-    const desc = true
-    let endTime = formatTodayStringPair()[1]
-    let startTime = formatTodayStringPair()[0]
-    let allIds = []
+    const todayStr = formatTodayDateOnlyString(); // e.g. "20260709"
+    const [startTime, endTime] = formatTodayStringPair(); // "YYYYMMDD_000000" ~ "YYYYMMDD_235959"
 
-    for (let round = 1;;round++){
-      const idPartial = await searchIdentities({
-        prefix:    id_prefix,
+    // prefix 空白 + 今天時間範圍，後端會搜尋 key 在時間範圍內的所有資料
+    const idPartial = await searchIdentities({
+      prefix:    '',
+      startTime: startTime,
+      endTime:   endTime,
+      order:     'asc',
+      limit:     10000,
+    });
 
-        // 前缀与起始时间完全一致的记录，都会被纳入结果中.
-        // 20260623_090000, 20260623_0900001234 两种时间格式都接受，因为bookmark中的时间格式是后者
-        startTime: startTime,
+    // 前端再以 ID 包含今天日期確認（防御跨日残留資料）
+    const allIds = (idPartial.value ?? []).filter(item => item.id && item.id.includes(todayStr));
+    console.log(`searchTodayIdentities: fetched ${idPartial.value?.length ?? 0} total, filtered ${allIds.length} for today (${todayStr})`);
 
-        // 前缀与结束时间（endTime）完全一致的记录，将从结果集中剔除.
-        // 20260623_090000, 20260623_0900001234 两种时间格式都接受，因为bookmark中的时间格式是后者
-        endTime:   endTime,
-
-        order:     desc?'desc':'asc',
-        limit:     100,
-      })
-
-      const len = idPartial.value?.length ?? 0
-      const lastId = idPartial.value?.at(-1).id ?? undefined
-      console.log("round:", round, ", got:", len, ", limit:", 100, ", bookmark:", idPartial.bookmark, " , lastId:", lastId)
-
-      allIds.push(...idPartial.value??[]);
-
-      if (idPartial.bookmark == null || idPartial.bookmark === '') {
-        // bookmark 是查询下一页所需的标识ID。
-        // a. 采用降序（desc）排序时，bookmark 等于 idPartial.value 中的最后一条数据ID,
-        //    所以此时使用bookmark和idPartial.value最后一条记录id中的时间作为下一次查询的endTime的效果是一样的。
-        // b. 采用升序（asc）排序时，bookmark 为下一页第一条数据的ID字符串。
-        // c. 若 bookmark 为空，则代表在当前筛选条件下，已查询到结果集的最后一页。
-        break
-      }
-
-      const nextFilterTime = idPartial.bookmark?.split(":").pop()
-      if (desc) {
-        // use either bookmark or last element of idTrunk.value, because they are identical.
-        // endTime = idPartial.value[-1]
-        endTime = nextFilterTime
-      } else {
-        // must use bookmark to do next search.
-        startTime = nextFilterTime
-      }
-    }
-
-    //allIds holds all result of identities at this moment.
-    return allIds
+    return allIds;
 
   } catch (error) {
     console.error('failed to fetch identities:', error);
@@ -189,8 +209,8 @@ export async function searchTodayIdentities(){
 
 
 /*
-* 搜索今天创建的identities的ids
-* @returns {Promise} - array that have id and revoke-state
+* 搜索今天建立的 identities 的 ids（不限前綴）
+* @returns {Promise} - { normal: string[], revoked: string[] }
  */
 export async function searchTodayIds(){
   try {
@@ -305,7 +325,10 @@ export async function loadIdentities(...ids) {
 
     let value = []
     response.data.value.forEach((item) => {
-      let person = item.document;
+      let person = item.document || {};
+      if (!person.id) {
+        person.id = item.id;
+      }
       if (item.revoked){
         person.name += revokedFlag
       }
@@ -401,23 +424,29 @@ export async function revokeIdentity(id) {
 
 export async function getIdentityByHash(...hashes) {
   try {
-    const response = await axiosInstance.post(`/did/history`, {"hashes": hashes}, {
+    // 1. 将参数展平（支持传入数组或多个独立的字符串参数）
+    const flatHashes = hashes.flat(Infinity);
+
+    // 2. 使用正则提取出所有符合 64 位十六进制格式的哈希值
+    const cleanHashes = [];
+    for (const item of flatHashes) {
+      if (typeof item === 'string') {
+        const matches = item.match(/[0-9a-fA-F]{64}/g);
+        if (matches) {
+          cleanHashes.push(...matches);
+        }
+      }
+    }
+
+    if (cleanHashes.length === 0) {
+      throw new Error('未找到有效的 transaction hash (64位十六进制字符)');
+    }
+
+    const response = await axiosInstance.post(`/did/tx`, { "hashes": cleanHashes }, {
       headers: {
         'Content-Type': 'application/json', // 确保请求头为 JSON
       },
     });
-
-    // example response from history
-    /*
-    {
-      "B03E5E7CD5424265F767F61E8DFBA7BDC9FB716074C5603A4F44F3A33DF9BD4A": {
-          "error": "error message" //not empty if failure happenes on this tx
-      },
-      "FF3E5E7CD5424265F767F61E8DFBA7BDC9FB716074C5603A4F44F3A33DF9BDD0": {
-          "raw_data": {...}, // succeed
-      },
-    }
-    */
 
     if (response.data.error) {
       throw (response.data.error);

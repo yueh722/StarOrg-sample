@@ -13,8 +13,8 @@
         <label for="server-select">选择服务器:</label>
         <select id="server-select" v-model="selectedServer" @change="onServerChange">
           <option value="">-- 请选择服务器 --</option>
-          <option v-for="(server, index) in serverOptions" :key="index" :value="server">
-            {{ server }}
+          <option v-for="(opt, index) in serverOptions" :key="index" :value="typeof opt === 'string' ? opt : opt.server">
+            {{ typeof opt === 'string' ? opt : opt.server }}{{ (typeof opt === 'string' || opt.token) ? '' : ' (未連線)' }}
           </option>
         </select>
       </div>
@@ -37,7 +37,10 @@
       <label>并发数量: </label>
       <input v-model.number="concurrency" type="number" min="1" />
     </div>
-    <button @click="runTests">Run Test</button>
+    <div class="button-group">
+      <button @click="runTests">Run Test</button>
+      <button @click="queryBlockHeight">查詢最新區塊高度</button>
+    </div>
     <textarea v-model="log" rows="20" cols="80" readonly></textarea>
   </div>
 </template>
@@ -68,7 +71,8 @@ export default {
       serverlist: getServers(),
       selectedServer: getServer(), // 当前选中的服务器
       writeLock: Promise.resolve(),
-      lastIndex: 0
+      lastIndex: 0,
+      latestHeight: null
     };
   },
   computed: {
@@ -106,11 +110,16 @@ export default {
 
       this.serverlist = await fetchServerListFromURL(this.fetchURL);
       // 如果之前有选中的服务器，尝试保留选择
-      if (this.serverOptions.includes(this.selectedServer)) {
+      const hasSelected = this.serverOptions.some(opt => {
+        const url = typeof opt === 'string' ? opt : opt.server;
+        return url === this.selectedServer;
+      });
+      if (hasSelected) {
         // 保持当前选择
       } else {
         if (this.serverlist.length > 0) {
-          this.selectedServer = this.serverlist[0];
+          const firstOpt = this.serverlist[0];
+          this.selectedServer = typeof firstOpt === 'string' ? firstOpt : firstOpt.server;
         } else {
           this.selectedServer = '';
         }
@@ -160,8 +169,11 @@ export default {
       try {
         // 1. 集中创建 identities
         this.log += 'Creating identities...\n';
+        const createStartTime = Date.now();
         this.identities = await this.createIdentities(params.iterations);
-        this.log += `${this.identities.length} identities created.\n`;
+        const createdCount = this.identities.length;
+        const createDuration = Date.now() - createStartTime;
+        this.log += `${createdCount} identities created.\n`;
 
         await this.sleep(5000);
 
@@ -170,22 +182,20 @@ export default {
         const updateResults = await this.runPressureTest(
             async (index) => {
               try {
-                //this.outputTime(index)
-                await this.sleep(this.getRandom5000());
-                //this.outputTime(index)
-
                 const identity = this.getRandomIdentity();
+                if (!identity) {
+                  return null;
+                }
                 const updatedPerson = { ...identity, name: this.safeRandom8() };
                 const res = await updatePerson(updatedPerson);
 
-                //await this.safeWriteGlobalArr(old => this.updateIdentity(old, updatedPerson));
-                const update_result = await this.updateIdentity(updatedPerson);
+                const update_result = this.updateIdentity(updatedPerson);
 
                 this.log += `update identity: ${identity.id}, name: ${updatedPerson.name}, hash: ${res.hash}, result: ${update_result}\n`;
                 return updatedPerson;
-              }catch (error) {
+              } catch (error) {
                 this.log += `update failure: ${error}\n`;
-                //throw error;
+                return null;
               }
             },
             params,
@@ -199,12 +209,22 @@ export default {
         this.log += 'Running queryPerson pressure test...\n';
         const queryResults = await this.runPressureTest(
             async (index) => {
-              const identity = this.getRandomIdentity();
-              const remote = await queryPerson(identity.id);
-              if (remote.id !== identity.id || remote.name !== identity.name) {
-                this.log += `failed to query identity: ${identity.id} ${remote.name}, name: ${identity.name}\n`;
-              }else {
-                this.log += `query identity: ${identity.id} name: ${remote.name}; matched\n`;
+              try {
+                const identity = this.getRandomIdentity();
+                if (!identity) {
+                  return null;
+                }
+                const remote = await queryPerson(identity.id);
+                if (remote.id !== identity.id || remote.name !== identity.name) {
+                  this.log += `failed to query identity: ${identity.id} ${remote.name}, name: ${identity.name}\n`;
+                  return null;
+                } else {
+                  this.log += `query identity: ${identity.id} name: ${remote.name}; matched\n`;
+                  return remote;
+                }
+              } catch (error) {
+                this.log += `query failure: ${error}\n`;
+                return null;
               }
             },
             params,
@@ -238,10 +258,17 @@ export default {
 
         // 4. 最后进行 revoke（删除）
         this.log += 'Running deletePerson pressure test...\n';
+        const deleteConcurrency = params.concurrency;
+        const deleteIterations = Math.ceil(this.identities.length / deleteConcurrency) || 1;
+        const deleteParams = {
+          ...params,
+          iterations: deleteIterations,
+          concurrency: deleteConcurrency
+        };
         const deleteResults = await this.runPressureTest(
             async (index) => {
               try {
-                const identity = await this.getAndRemoveIdentity(); // 获取并移除 identity
+                const identity = this.getAndRemoveIdentity(); // 改为同步获取
                 if (!identity) {
                   return null;
                 }
@@ -250,27 +277,137 @@ export default {
                 return identity.id;
               } catch (error) {
                 this.log += `revoke failure: ${error}\n`;
-                //throw error;
+                return null;
               }
             },
-            params,
+            deleteParams,
             200
         );
         this.log += `deletePerson test completed in ${deleteResults.duration}ms.\n`;
 
         this.log += 'All pressure tests completed successfully.\n';
+
+        // 5. 輸出統計摘要報告
+        const createTps = (createdCount / (createDuration / 1000)).toFixed(2);
+        const updateTps = (updateResults.results.length / (updateResults.duration / 1000)).toFixed(2);
+        const queryTps = (queryResults.results.length / (queryResults.duration / 1000)).toFixed(2);
+        const deleteTps = (deleteResults.results.length / (deleteResults.duration / 1000)).toFixed(2);
+
+        this.log += `\n======================================\n`;
+        this.log += `       PRESSURE TEST SUMMARY REPORT   \n`;
+        this.log += `       測試時間: ${new Date().toLocaleString()}\n`;
+        this.log += `======================================\n`;
+        this.log += `Target Server: ${this.selectedServer}\n`;
+        this.log += `Config:\n`;
+        this.log += `  - Total Identities to Create: ${params.iterations}\n\n`;
+        this.log += `  - Loop Iterations (Update/Query/Delete): ${params.iterations}\n`;
+        this.log += `  - Base Interval: ${params.interval} ms\n`;
+        this.log += `  - Random Interval: ${params.randomInterval ? 'Yes' : 'No'}\n`;
+        this.log += `  - Concurrency (Update/Query/Delete): ${params.concurrency}\n\n`;
+        this.log += `--------------------------------------\n`;
+        this.log += `Durations:\n`;
+        this.log += `  - Create Phase: ${createDuration} ms (Sequential)\n`;
+        this.log += `  - Update Phase: ${updateResults.duration} ms (Concurrent)\n`;
+        this.log += `  - Query  Phase: ${queryResults.duration} ms (Concurrent)\n`;
+        this.log += `  - Delete Phase: ${deleteResults.duration} ms (Concurrent)\n`;
+        this.log += `--------------------------------------\n`;
+        this.log += `Throughput (TPS):\n`;
+        this.log += `  - Create API: ${createTps} tx/s (Total: ${params.iterations} tx)\n`;
+        this.log += `  - Update API: ${updateTps} tx/s (Total: ${params.iterations * params.concurrency} tx)\n`;
+        this.log += `  - Query  API: ${queryTps} tx/s (Total: ${params.iterations * params.concurrency} tx)\n`;
+        this.log += `  - Delete API: ${deleteTps} tx/s (Total: ${params.iterations} tx)\n`;
+        this.log += `======================================\n`;
+
+        try {
+          const extraReport = await this.getBlockHeightAndStorageReport();
+          if (extraReport.trim()) {
+            this.log += extraReport;
+            this.log += `======================================\n`;
+          }
+        } catch (e) {
+          this.log += `Failed to query heights or storage: ${e}\n`;
+        }
+
       } catch (error) {
         this.log += `Pressure tests failed: ${error}\n`;
       }
+    },
+    async getBlockHeightAndStorageReport() {
+      let reportStr = "";
+      if (this.serverOptions && this.serverOptions.length > 0) {
+        const heightPromises = this.serverOptions.map(async (opt) => {
+          const serverUrl = typeof opt === 'string' ? opt : opt.server;
+          const isOnline = typeof opt === 'string' || !!opt.token;
+          if (!isOnline) {
+            return `節點 ${serverUrl} 目前狀態: 未連線\n`;
+          }
+
+          let rpcUrl = '';
+          if (serverUrl.includes('/node1-api') || serverUrl.includes(':1001')) {
+            rpcUrl = '/node-rpc/status';
+          } else if (serverUrl.includes('/node2-api') || serverUrl.includes(':2001')) {
+            rpcUrl = '/node2-rpc/status';
+          } else if (serverUrl.includes('/node3-api') || serverUrl.includes(':3001')) {
+            rpcUrl = '/node3-rpc/status';
+          } else {
+            try {
+              const url = new URL(serverUrl);
+              rpcUrl = `http://${url.hostname}:26657/status`;
+            } catch (e) {
+              rpcUrl = `${serverUrl}/status`;
+            }
+          }
+          try {
+            const response = await fetch(rpcUrl);
+            if (response.ok) {
+              const data = await response.json();
+              const height = data.result?.sync_info?.latest_block_height;
+              if (height !== undefined) {
+                return `節點 ${serverUrl} 目前區塊高度: ${height}\n`;
+              }
+            }
+          } catch (e) {
+            return `節點 ${serverUrl} 查詢失敗: 無法連線 (${e.message || e})\n`;
+          }
+          return `節點 ${serverUrl} 目前狀態: 無法取得高度\n`;
+        });
+
+        const results = await Promise.all(heightPromises);
+        results.forEach((res) => {
+          if (res) {
+            reportStr += res;
+          }
+        });
+      }
+      reportStr += `\n`;
+      try {
+        const response = await fetch('/app-api/api/storagesize');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success) {
+            reportStr += `區塊鏈帳本資料庫空間 [含 node1~3 帳本] (C:\\ProgramData\\chainnode\\data): ${data.data}\n`;
+            reportStr += `鏈節點系統總佔用空間 [包含上述帳本及日誌/配置/執行檔] (C:\\ProgramData\\chainnode): ${data.chainnode}\n`;
+          }
+        } else {
+          reportStr += `[警告] 無法自動讀取儲存空間 (HTTP ${response.status}，請確認 node server.js 後台服務是否已重啟)\n`;
+        }
+      } catch (e) {
+        reportStr += `[警告] 無法自動讀取儲存空間 (請確認 node server.js 後台服務是否已重啟)，錯誤: ${e.message || e}\n`;
+      }
+      return reportStr;
     },
     // 创建一批 identities
     async createIdentities(count) {
       const identities = [];
       for (let i = 0; i < count; i++) {
-        const person = this.generatePerson();
-        const res = await addPerson(person); // 调用 API 创建 identity
-        identities.push(person);
-        this.log += `Created identity: ${person.id}, hash: ${res.hash}\n`;
+        try {
+          const person = this.generatePerson();
+          const res = await addPerson(person); // 调用 API 创建 identity
+          identities.push(person);
+          this.log += `Created identity: ${person.id}, hash: ${res.hash}\n`;
+        } catch (error) {
+          this.log += `Failed to create identity at index ${i}: ${error.message || error}\n`;
+        }
         await this.sleep(50);
       }
       return identities;
@@ -287,11 +424,17 @@ export default {
 
     // 从保存的 identities 中随机获取一个
     getRandomIdentity() {
-      let randomIndex = 0
-
-      while (this.lastIndex == randomIndex) {
-        randomIndex = Math.floor(Math.random() * this.identities.length);
+      if (!this.identities || this.identities.length === 0) {
+        return null;
       }
+      if (this.identities.length === 1) {
+        return this.identities[0];
+      }
+
+      let randomIndex = 0;
+      do {
+        randomIndex = Math.floor(Math.random() * this.identities.length);
+      } while (this.lastIndex === randomIndex);
 
       this.lastIndex = randomIndex;
       return this.identities[randomIndex];
@@ -306,30 +449,18 @@ export default {
       return identities
     },
 
-    async updateIdentity(person) {
-      let res = false
-      while (this.lock) {
-        await new Promise((resolve) => setTimeout(resolve, 1000)); // 等待锁释放
-      }
-      this.lock = true; // 加锁
+    updateIdentity(person) {
       const targetIndex = this.identities.findIndex(item => item.id === person.id);
       if (targetIndex !== -1) {
         this.identities[targetIndex] = person;
-        res = true;
+        return true;
       }
-      this.lock = false; // 释放锁
-      return res
+      return false;
     },
 
-    // 从 identities 中获取并移除一个元素
-    async getAndRemoveIdentity() {
-      while (this.lock) {
-        await new Promise((resolve) => setTimeout(resolve, 10)); // 等待锁释放
-      }
-      this.lock = true; // 加锁
-      const identity = this.identities.shift(); // 获取并移除第一个元素
-      this.lock = false; // 释放锁
-      return identity;
+    // 从 identities 中获取并移除一个元素（改为纯同步）
+    getAndRemoveIdentity() {
+      return this.identities.shift();
     },
 
     // 运行压力测试
@@ -369,9 +500,21 @@ export default {
       let str = '';
       arr.forEach(num => {
         str += chars[num % chars.length];
-      })
+      });
       return str;
     },
+
+    formatTime(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      const h = String(date.getHours()).padStart(2, '0');
+      const mi = String(date.getMinutes()).padStart(2, '0');
+      const s = String(date.getSeconds()).padStart(2, '0');
+      return `${y}${m}${d}_${h}${mi}${s}`;
+    },
+
+
 
     getRandom5000() {
       // Math.random() → [0,1)
@@ -382,58 +525,145 @@ export default {
       const now = new Date();
       const fullTime = `${now.getHours()}:${now.getMinutes()}:${now.getSeconds()}.${now.getMilliseconds()}`;
       this.log += `${id}_${fullTime}\n`;
+    },
+
+    async queryBlockHeight() {
+      const server = getServer();
+      if (!server) {
+        alert('請先選擇一個伺服器！');
+        return;
+      }
+
+      // Check online status in serverOptions
+      const matchedOpt = this.serverOptions.find(opt => {
+        const url = typeof opt === 'string' ? opt : opt.server;
+        return url === server;
+      });
+      const isOnline = !matchedOpt || typeof matchedOpt === 'string' || !!matchedOpt.token;
+      if (!isOnline) {
+        this.log += `[${new Date().toLocaleTimeString()}] 節點 ${server} 目前狀態: 未連線\n`;
+        return;
+      }
+
+      let rpcUrl = '';
+      if (server.includes('/node1-api') || server.includes(':1001')) {
+        rpcUrl = '/node1-rpc/status';
+      } else if (server.includes('/node2-api') || server.includes(':2001')) {
+        rpcUrl = '/node2-rpc/status';
+      } else if (server.includes('/node3-api') || server.includes(':3001')) {
+        rpcUrl = '/node3-rpc/status';
+      } else {
+        try {
+          const url = new URL(server);
+          rpcUrl = `http://${url.hostname}:26657/status`;
+        } catch (e) {
+          rpcUrl = `${server}/status`;
+        }
+      }
+
+      try {
+        const response = await fetch(rpcUrl);
+        if (!response.ok) {
+          throw new Error(`HTTP 錯誤! 狀態碼: ${response.status}`);
+        }
+        const data = await response.json();
+        if (data && data.result) {
+          const height = data.result.sync_info?.latest_block_height;
+          if (height !== undefined) {
+            this.latestHeight = height;
+            this.log += `[${new Date().toLocaleTimeString()}] 節點 ${server} 目前區塊高度: ${height}\n`;
+          } else {
+            this.log += `[${new Date().toLocaleTimeString()}] 無法解析區塊高度，傳回資料異常\n`;
+          }
+        } else {
+          this.log += `[${new Date().toLocaleTimeString()}] 無法取得區塊高度資料\n`;
+        }
+      } catch (error) {
+        this.log += `[${new Date().toLocaleTimeString()}] 節點 ${server} 查詢失敗: 無法連線 (${error.message || error})\n`;
+      }
     }
   },
 };
 </script>
 
 <style scoped>
-textarea {
-  margin-top: 20px;
-  width: 100%;
-}
+  textarea {
+    margin-top: 20px;
+    width: 100%;
+  }
 
-div {
-  margin-bottom: 10px;
-}
+  .button-group {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 20px;
+  }
 
-label {
-  display: inline-block;
-  width: 120px;
-}
+  div {
+    margin-bottom: 10px;
+  }
 
-/* 服务器配置区域样式 */
-.server-section {
-  margin-bottom: 20px;
-}
+  label {
+    display: inline-block;
+    width: 120px;
+  }
 
-.url-group, .server-select-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
+  input[type="number"], input[type="datetime-local"] {
+    padding: 6px 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+  }
 
-.url-group label, .server-select-group label {
-  margin: 0;
-  white-space: nowrap;
-  min-width: 180px;
-}
+  .server-section {
+    margin-bottom: 20px;
+  }
 
-.url-group input, .server-select-group select {
-  flex: 1;
-  min-width: 250px;
-  padding: 8px 12px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-}
+  .url-group, .server-select-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
 
-.url-group button {
-  padding: 8px 16px;
-  border: 1px solid #ccc;
-  background: #f0f0f0;
-  cursor: pointer;
-  border-radius: 4px;
-  white-space: nowrap;
-}
+  .url-group label, .server-select-group label {
+    margin: 0;
+    white-space: nowrap;
+    min-width: 180px;
+  }
+
+  .url-group input, .server-select-group select {
+    flex: 1;
+    min-width: 250px;
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+  }
+
+  .url-group button {
+    padding: 8px 16px;
+    border: 1px solid #ccc;
+    background: #f0f0f0;
+    cursor: pointer;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  .button-group button {
+    padding: 4px 8px;
+    font-size: 13px;
+    border: 1px solid #ccc;
+    background: #f0f0f0;
+    cursor: pointer;
+    border-radius: 4px;
+    white-space: nowrap;
+    outline: none;
+  }
+
+  .button-group button:hover {
+    background: #e0e0e0;
+  }
+
+  .button-group button:focus, .button-group button:active {
+    outline: none;
+    box-shadow: none;
+  }
 </style>

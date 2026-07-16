@@ -13,8 +13,8 @@
           <label for="server-select">选择服务器:</label>
           <select id="server-select" v-model="selectedServer" @change="onServerChange">
             <option value="">-- 请选择服务器 --</option>
-            <option v-for="(server, index) in serverOptions" :key="index" :value="server">
-              {{ server }}
+            <option v-for="(opt, index) in serverOptions" :key="index" :value="typeof opt === 'string' ? opt : opt.server">
+              {{ typeof opt === 'string' ? opt : opt.server }}{{ (typeof opt === 'string' || opt.token) ? '' : ' (未連線)' }}
             </option>
           </select>
         </div>
@@ -109,6 +109,47 @@
         </div>
       </div>
     </div>
+
+    <!-- 交易查詢區域 -->
+    <div class="transaction-query-section">
+      <h2>交易歷史查詢</h2>
+      <div class="query-container">
+        <!-- 左側：按鍵和設定 -->
+        <div class="query-settings">
+          <div class="query-row">
+            <label for="query-id">id:</label>
+            <input id="query-id" v-model="queryId" type="text" placeholder="ID 前綴，如 user:new:" />
+          </div>
+          <div class="query-row">
+            <label for="query-start">開始時間:</label>
+            <input id="query-start" v-model="queryStartTime" type="text" placeholder="YYYY-MM-DD HH:mm:ss" />
+          </div>
+          <div class="query-row">
+            <label for="query-end">結束時間:</label>
+            <input id="query-end" v-model="queryEndTime" type="text" placeholder="YYYY-MM-DD HH:mm:ss" />
+          </div>
+          <div class="query-row">
+            <label for="query-limit">limit:</label>
+            <input id="query-limit" v-model.number="queryLimit" type="number" min="1" placeholder="限制數量" />
+          </div>
+          <div class="query-row">
+            <label for="query-order">排序:</label>
+            <select id="query-order" v-model="queryOrder" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; background: white;">
+              <option value="desc">降序 (desc)</option>
+              <option value="asc">升序 (asc)</option>
+            </select>
+          </div>
+          <div class="query-buttons">
+            <button type="button" @click="handleQueryTransactions">交易查詢</button>
+          </div>
+        </div>
+
+        <!-- 右側：大訊息框 -->
+        <div class="query-output">
+          <textarea v-model="queryLog" placeholder="查詢結果將顯示於此..." readonly></textarea>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -145,6 +186,18 @@ function getCurrentDate() {
 
 export default {
   data() {
+    const now = new Date();
+    const format24 = (d) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const hours = String(d.getHours()).padStart(2, '0');
+      const mins = String(d.getMinutes()).padStart(2, '0');
+      const secs = String(d.getSeconds()).padStart(2, '0');
+      return `${year}-${month}-${day} ${hours}:${mins}:${secs}`;
+    };
+    const localTime24 = format24(now);
+
     return {
       person: {
         ...getDefaultPerson(),
@@ -161,6 +214,12 @@ export default {
       serverlist: getServers(),
       selectedServer: getServer(), // 当前选中的服务器
       txHashes: '',
+      queryStartTime: '2026-07-01 00:00:00',
+      queryEndTime: localTime24,
+      queryId: '',
+      queryLimit: 1000,
+      queryOrder: 'desc',
+      queryLog: '',
     };
   },
   computed: {
@@ -236,11 +295,16 @@ export default {
 
       this.serverlist = await fetchServerListFromURL(this.fetchURL);
       // 如果之前有选中的服务器，尝试保留选择
-      if (this.serverOptions.includes(this.selectedServer)) {
+      const hasSelected = this.serverOptions.some(opt => {
+        const url = typeof opt === 'string' ? opt : opt.server;
+        return url === this.selectedServer;
+      });
+      if (hasSelected) {
         // 保持当前选择
       } else {
         if (this.serverlist.length > 0) {
-          this.selectedServer = this.serverlist[0];
+          const firstOpt = this.serverlist[0];
+          this.selectedServer = typeof firstOpt === 'string' ? firstOpt : firstOpt.server;
           this.onServerChange()
         } else {
           this.selectedServer = '';
@@ -394,6 +458,88 @@ export default {
       this.isEditing = false;
       this.preFilterText = this.filterText;
       this.filterText = '';
+    },
+    formatTime(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      const h = String(date.getHours()).padStart(2, '0');
+      const mi = String(date.getMinutes()).padStart(2, '0');
+      const s = String(date.getSeconds()).padStart(2, '0');
+      return `${y}${m}${d}_${h}${mi}${s}`;
+    },
+    async handleQueryTransactions() {
+      if (!this.selectedServer) {
+        alert('choose a server first');
+        return;
+      }
+      if (!this.queryStartTime || !this.queryEndTime) {
+        alert('請先填入開始時間與結束時間');
+        return;
+      }
+      const start = new Date(this.queryStartTime);
+      const end = new Date(this.queryEndTime);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        alert('無效的時間格式');
+        return;
+      }
+
+      this.queryLog = `Querying transactions from ${this.queryStartTime} to ${this.queryEndTime}...\n`;
+      try {
+        const startTimeStr = this.formatTime(start);
+        const endTimeStr = this.formatTime(end);
+
+        const desc = (this.queryOrder === 'desc');
+        const id_prefix = this.queryId ? this.queryId.trim() : '';
+        let allIds = [];
+        let startTime = startTimeStr;
+        let endTime = endTimeStr;
+        const maxLimit = this.queryLimit || 100;
+
+        for (let round = 1; ; round++) {
+          const currentRoundLimit = Math.min(100, maxLimit - allIds.length);
+          if (currentRoundLimit <= 0) {
+            break;
+          }
+
+          const idPartial = await searchIdentities({
+            prefix: id_prefix,
+            startTime: startTime,
+            endTime: endTime,
+            order: this.queryOrder,
+            limit: currentRoundLimit,
+          });
+
+          const chunk = idPartial.value ?? [];
+          allIds.push(...chunk);
+
+          if (!idPartial.bookmark || chunk.length < currentRoundLimit || allIds.length >= maxLimit) {
+            break;
+          }
+
+          const nextFilterTime = idPartial.bookmark.split(":").pop();
+          if (desc) {
+            endTime = nextFilterTime;
+          } else {
+            startTime = nextFilterTime;
+          }
+        }
+
+        if (allIds.length === 0) {
+          this.queryLog += `No transactions found on the server within the selected range.\n`;
+          return;
+        }
+
+        this.queryLog += `--- Transactions from ${this.queryStartTime} to ${this.queryEndTime} (Total: ${allIds.length}) ---\n`;
+        allIds.forEach((item, index) => {
+          const person = item.document;
+          this.queryLog += `${index + 1}: ID: ${item.id}, Name: ${person ? person.name : 'Unknown'}, Revoked: ${item.revoked ?? 'false'}\n`;
+        });
+        this.queryLog += '--- End of Transactions ---\n';
+
+      } catch (error) {
+        this.queryLog += `Query failed: ${error}\n`;
+      }
     },
   },
 };
@@ -868,5 +1014,100 @@ label.messageClass {
     padding: 15px;
     font-size: 13px;
   }
+}
+
+/* 交易查詢區域 */
+.transaction-query-section {
+  margin-top: 30px;
+  border-top: 2px solid #eee;
+  padding-top: 20px;
+}
+
+.transaction-query-section h2 {
+  margin-bottom: 15px;
+  font-size: 18px;
+}
+
+.query-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+@media (min-width: 1000px) {
+  .query-container {
+    flex-direction: row;
+  }
+
+  .query-settings {
+    flex: 0 0 400px;
+  }
+
+  .query-output {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.query-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background-color: #f9f9f9;
+  padding: 15px;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+}
+
+.query-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.query-row label {
+  font-weight: bold;
+  font-size: 13px;
+  margin: 0;
+  display: block;
+}
+
+.query-row input {
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 13px;
+  width: 100%;
+}
+
+.query-buttons {
+  margin-top: 8px;
+}
+
+.query-buttons button {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ccc;
+  background: #f0f0f0;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.query-buttons button:hover {
+  background: #e0e0e0;
+}
+
+.query-output textarea {
+  width: 100%;
+  height: 350px;
+  padding: 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 13px;
+  resize: vertical;
+  background-color: #fafafa;
 }
 </style>

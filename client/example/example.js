@@ -1,7 +1,7 @@
 //example.js
 
-import {StartStream} from "./stream.js";
-import {RestartAllNodes, StartAllNodes, StopAllNodes} from "./control-node.js";
+import { StartStream } from "./stream.js";
+import { RestartAllNodes, StartAllNodes, StopAllNodes } from "./control-node.js";
 import {
     AddChainNodeOnMultiMachine,
     AddChainNodeOnSingleMachine, GetServerAddrOfABCIApp,
@@ -10,10 +10,10 @@ import {
     PurgeChain, ResetNodeByName,
     StartInitializedNodes
 } from "./setup.js";
-import {makeSuccess, SetupClient} from "../src/SetupClient.js";
-import {GetConnection, setServerAddress} from "./conn.js";
+import { makeSuccess, SetupClient } from "../src/SetupClient.js";
+import { GetConnection, setServerAddress } from "./conn.js";
 
-async function DeployHalfToMultiMachineFromScratch(){
+async function DeployHalfToMultiMachineFromScratch() {
 
     const results = [
         await PurgeChain(),
@@ -32,16 +32,16 @@ async function DeployHalfToMultiMachineFromScratch(){
 }
 
 
-async function DeployHalfFromScratch(useLoopIp = true){
+async function DeployHalfFromScratch(useLoopIp = true) {
 
     const results = [
         await PurgeChain(),
-        await InitializeChainOnSingleMachine(useLoopIp, 'mychain','node1', 'node2', 'node3', 'node4'),
+        await InitializeChainOnSingleMachine(useLoopIp, 'mychain', 'node1', 'node2', 'node3', 'node4'),
         await StartInitializedNodes(),
         // give few seconds to let validator nodes finish starting procedure. the more node you initialized one time,
         // the more time you need to wait
         await oksleep(5),
-        await AddChainNodeOnSingleMachine(useLoopIp,'node5', 'node40', 'node20', 'node30'),
+        await AddChainNodeOnSingleMachine(useLoopIp, 'node5', 'node40', 'node20', 'node30'),
 
         //start node3, node4
         //await StartNodeByName('node3', 'node4'),
@@ -53,20 +53,20 @@ async function DeployHalfFromScratch(useLoopIp = true){
 }
 
 
-async function StartNodeByName(...names){
+async function StartNodeByName(...names) {
     const setupClient = await new SetupClient(await GetConnection())
     const nodeIDs = (await setupClient.MakeChainState()).GetNodeIDsByName(...names)
     return await setupClient.StartNode(...nodeIDs)
 }
 
-function CheckResult(...results){
+function CheckResult(...results) {
     try {
         results.forEach((result) => {
-            if (result.error){
+            if (result.error) {
                 console.error(result.error);
             }
         })
-    }catch (error) {
+    } catch (error) {
         console.error(error, ...results);
     }
 }
@@ -104,7 +104,7 @@ await StartStream()
 
 for (let i = 0; i < 100; i++) {
 
-   //break
+    //break
 
     const results = [
         ...await DeployHalfFromScratch(true),
