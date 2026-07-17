@@ -352,7 +352,14 @@ export default {
           } else {
             try {
               const url = new URL(serverUrl);
-              rpcUrl = `http://${url.hostname}:26657/status`;
+              const port = parseInt(url.port, 10);
+              let rpcPort = 26657;
+              if (port >= 1001) {
+                const nodeIndex = Math.round((port - 1001) / 1000);
+                rpcPort = 26657 + nodeIndex * 1000;
+              }
+              const targetHostname = url.hostname === '192.168.171.43' ? '127.0.0.1' : url.hostname;
+              rpcUrl = `http://${targetHostname}:${rpcPort}/status`;
             } catch (e) {
               rpcUrl = `${serverUrl}/status`;
             }
@@ -555,7 +562,16 @@ export default {
       } else {
         try {
           const url = new URL(server);
-          rpcUrl = `http://${url.hostname}:26657/status`;
+          const port = parseInt(url.port, 10);
+          let rpcPort = 26657;
+          if (port >= 1001) {
+            const nodeIndex = Math.round((port - 1001) / 1000);
+            rpcPort = 26657 + nodeIndex * 1000;
+          }
+          // 由於 CometBFT RPC 僅綁定在 127.0.0.1，且瀏覽器安全限制（Mixed Content）會阻擋 HTTPS 網頁向實體 LAN IP 發送 HTTP 請求，
+          // 但允許向 127.0.0.1 發送 HTTP 請求。因此若為本機節點，查詢 RPC 時改用 127.0.0.1。
+          const targetHostname = url.hostname === '192.168.171.43' ? '127.0.0.1' : url.hostname;
+          rpcUrl = `http://${targetHostname}:${rpcPort}/status`;
         } catch (e) {
           rpcUrl = `${server}/status`;
         }

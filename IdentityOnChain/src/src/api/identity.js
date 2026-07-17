@@ -71,14 +71,27 @@ export async function fetchServers(){
 
     cacheHosts = data.data.map(item => {
       let nodeServer = item.server;
-      // 如果 nodeServer 包含 127.0.0.1 或 localhost，將其替換為 fetchHostname
+      // 如果 nodeServer 包含 127.0.0.1 或 localhost
       if (nodeServer.includes('127.0.0.1') || nodeServer.includes('localhost')) {
-        try {
-          const url = new URL(nodeServer);
-          url.hostname = fetchHostname;
-          nodeServer = url.toString().replace(/\/$/, ""); // 移除結尾的斜線
-        } catch (e) {
-          nodeServer = nodeServer.replace('127.0.0.1', fetchHostname).replace('localhost', fetchHostname);
+        const isLocalNodePort = nodeServer.includes(':4001') || nodeServer.includes(':5001');
+        if (!isLocalNodePort) {
+          // VM 上的節點 (node1, node2, node3)，將 127.0.0.1 替換為 VM IP (fetchHostname)
+          try {
+            const url = new URL(nodeServer);
+            url.hostname = fetchHostname;
+            nodeServer = url.toString().replace(/\/$/, ""); // 移除結尾的斜線
+          } catch (e) {
+            nodeServer = nodeServer.replace('127.0.0.1', fetchHostname).replace('localhost', fetchHostname);
+          }
+        } else {
+          // 本機上的節點 (node4, node5)，將 127.0.0.1 替換為本機實體 LAN IP (192.168.171.43)
+          try {
+            const url = new URL(nodeServer);
+            url.hostname = '192.168.171.43';
+            nodeServer = url.toString().replace(/\/$/, "");
+          } catch (e) {
+            nodeServer = nodeServer.replace('127.0.0.1', '192.168.171.43').replace('localhost', '192.168.171.43');
+          }
         }
       }
       return { ...item, server: nodeServer };
