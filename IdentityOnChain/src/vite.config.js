@@ -17,6 +17,8 @@ export default defineConfig({
     },
   },
   server: {
+    host: true,
+    allowedHosts: true,
     proxy: {
       // 網頁抓名單用：當請求 /api 時，轉發到 3166
       '/app-api': {

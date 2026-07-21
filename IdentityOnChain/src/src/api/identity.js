@@ -75,13 +75,34 @@ export async function fetchServers(){
       if (nodeServer.includes('127.0.0.1') || nodeServer.includes('localhost')) {
         const isLocalNodePort = nodeServer.includes(':4001') || nodeServer.includes(':5001');
         if (!isLocalNodePort) {
-          // VM 上的節點 (node1, node2, node3)，將 127.0.0.1 替換為 VM IP (fetchHostname)
-          try {
-            const url = new URL(nodeServer);
-            url.hostname = fetchHostname;
-            nodeServer = url.toString().replace(/\/$/, ""); // 移除結尾的斜線
-          } catch (e) {
-            nodeServer = nodeServer.replace('127.0.0.1', fetchHostname).replace('localhost', fetchHostname);
+          // VM 上的節點 (node1, node2, node3)
+          // 當從外部（非 localhost/127.0.0.1，如 ngrok 或實體 IP）連線時，
+          // 直接對應到 Vite Proxy 相對路徑，避免外部無法存取 1001/2001/3001 port 以及 Mixed Content 封鎖。
+          if (fetchHostname !== 'localhost' && fetchHostname !== '127.0.0.1') {
+            if (nodeServer.includes(':1001')) {
+              nodeServer = '/node1-api';
+            } else if (nodeServer.includes(':2001')) {
+              nodeServer = '/node2-api';
+            } else if (nodeServer.includes(':3001')) {
+              nodeServer = '/node3-api';
+            } else {
+              try {
+                const url = new URL(nodeServer);
+                url.hostname = fetchHostname;
+                nodeServer = url.toString().replace(/\/$/, "");
+              } catch (e) {
+                nodeServer = nodeServer.replace('127.0.0.1', fetchHostname).replace('localhost', fetchHostname);
+              }
+            }
+          } else {
+            // 本機開發環境，直接替換 hostname
+            try {
+              const url = new URL(nodeServer);
+              url.hostname = fetchHostname;
+              nodeServer = url.toString().replace(/\/$/, ""); // 移除結尾的斜線
+            } catch (e) {
+              nodeServer = nodeServer.replace('127.0.0.1', fetchHostname).replace('localhost', fetchHostname);
+            }
           }
         } else {
           // 本機上的節點 (node4, node5)，將 127.0.0.1 替換為本機實體 LAN IP (192.168.171.43)
