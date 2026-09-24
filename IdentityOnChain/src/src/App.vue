@@ -3,6 +3,7 @@
     <!-- 导航栏 -->
     <nav>
       <router-link to="/">Home</router-link> |
+      <router-link to="/dashboard">區塊鏈管理平台</router-link> |
       <router-link to="/person">人员管理</router-link> |
       <router-link to="/test">Test</router-link>
     </nav>

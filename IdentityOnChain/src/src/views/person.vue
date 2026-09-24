@@ -186,8 +186,9 @@ function getCurrentDate() {
 
 export default {
   data() {
-    const now = new Date();
-    const format24 = (d) => {
+    const getNowPlusOneHour = () => {
+      const d = new Date();
+      d.setHours(d.getHours() + 1);
       const year = d.getFullYear();
       const month = String(d.getMonth() + 1).padStart(2, '0');
       const day = String(d.getDate()).padStart(2, '0');
@@ -196,7 +197,6 @@ export default {
       const secs = String(d.getSeconds()).padStart(2, '0');
       return `${year}-${month}-${day} ${hours}:${mins}:${secs}`;
     };
-    const localTime24 = format24(now);
 
     return {
       person: {
@@ -210,17 +210,33 @@ export default {
       message: '',
       messageClass: '',
       showRevokedPerson: false,
-      fetchURL: getFetchURL(),
+      fetchURL: getFetchURL() || 'https://repeater-passover-blurb.ngrok-free.dev/api/appservers',
       serverlist: getServers(),
       selectedServer: getServer(), // 当前选中的服务器
       txHashes: '',
       queryStartTime: '2026-07-01 00:00:00',
-      queryEndTime: localTime24,
+      queryEndTime: getNowPlusOneHour(),
       queryId: '',
       queryLimit: 1000,
       queryOrder: 'desc',
       queryLog: '',
     };
+  },
+  async mounted() {
+    const d = new Date();
+    d.setHours(d.getHours() + 1);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hours = String(d.getHours()).padStart(2, '0');
+    const mins = String(d.getMinutes()).padStart(2, '0');
+    const secs = String(d.getSeconds()).padStart(2, '0');
+    this.queryEndTime = `${year}-${month}-${day} ${hours}:${mins}:${secs}`;
+
+    if (!this.fetchURL) {
+      this.fetchURL = 'https://repeater-passover-blurb.ngrok-free.dev/api/appservers';
+    }
+    await this.applyFetchURL();
   },
   computed: {
     // 将serverlist转换为选项数组
@@ -531,10 +547,7 @@ export default {
         }
 
         this.queryLog += `--- Transactions from ${this.queryStartTime} to ${this.queryEndTime} (Total: ${allIds.length}) ---\n`;
-        allIds.forEach((item, index) => {
-          const person = item.document;
-          this.queryLog += `${index + 1}: ID: ${item.id}, Name: ${person ? person.name : 'Unknown'}, Revoked: ${item.revoked ?? 'false'}\n`;
-        });
+        this.queryLog += JSON.stringify(allIds, null, 2) + '\n';
         this.queryLog += '--- End of Transactions ---\n';
 
       } catch (error) {

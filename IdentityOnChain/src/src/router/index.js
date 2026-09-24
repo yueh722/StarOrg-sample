@@ -4,6 +4,7 @@ import HelloWorld from "@/components/HelloWorld.vue";
 import TheWelcome from "@/components/TheWelcome.vue";
 import WelcomeItem from "@/components/WelcomeItem.vue";
 import PressureTest from "@/views/PressureTest.vue";
+import BlockchainDashboard from "@/views/BlockchainDashboard.vue";
 
 
 const router = createRouter({
@@ -13,6 +14,10 @@ const router = createRouter({
       path: '/',
       name: 'welcome',
       component: HelloWorld,
+    },
+    { path: '/dashboard',
+      name: 'dashboard',
+      component: BlockchainDashboard,
     },
     { path: '/person',
       name:'person',

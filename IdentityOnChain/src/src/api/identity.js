@@ -55,57 +55,46 @@ export function getFetchURL(){
 }
 
 export async function fetchServers(){
-
   try {
-    const res = await fetch(fetchURL);
-    const data = await res.json();
+    let targetURL = fetchURL;
 
-    // 獲取 fetchURL 的 hostname (例如 192.168.171.194 或 localhost)
-    let fetchHostname = '';
-    try {
-      fetchHostname = new URL(fetchURL).hostname;
-    } catch (e) {
-      // 如果 fetchURL 是相對路徑，使用目前瀏覽器的 window.location.hostname
-      fetchHostname = window.location.hostname;
+    // 清理與修正 fetchURL 避免無效的 /app-api/api/ 組合導致 404
+    if (targetURL.includes('/app-api/api/appservers') && targetURL.startsWith('http')) {
+      try {
+        const u = new URL(targetURL);
+        if (u.hostname !== 'localhost' && u.hostname !== '127.0.0.1') {
+          targetURL = `${u.origin}/api/appservers`;
+        }
+      } catch(e) {}
     }
 
-    cacheHosts = data.data.map(item => {
-      let nodeServer = item.server;
-      // 如果 nodeServer 包含 127.0.0.1 或 localhost
-      if (nodeServer.includes('127.0.0.1') || nodeServer.includes('localhost')) {
+    let res;
+    try {
+      res = await fetch(targetURL, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
+      if (!res.ok) throw new Error(`HTTP status ${res.status}`);
+    } catch (e) {
+      console.warn('[fetchServers] Direct fetch failed/CORS, attempting /app-api proxy fallback...', e);
+      res = await fetch('/app-api/api/appservers', {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
+    }
+
+    const data = await res.json();
+
+    cacheHosts = (data.data || []).map(item => {
+      let nodeServer = typeof item === 'string' ? item : (item.server || '');
+      // 只要包含 1001, 2001, 3001 埠，一律對應至 Vite Proxy 相對路徑 /node1-api, /node2-api, /node3-api
+      if (nodeServer.includes(':1001')) {
+        nodeServer = '/node1-api';
+      } else if (nodeServer.includes(':2001')) {
+        nodeServer = '/node2-api';
+      } else if (nodeServer.includes(':3001')) {
+        nodeServer = '/node3-api';
+      } else if (nodeServer.includes('127.0.0.1') || nodeServer.includes('localhost')) {
         const isLocalNodePort = nodeServer.includes(':4001') || nodeServer.includes(':5001');
-        if (!isLocalNodePort) {
-          // VM 上的節點 (node1, node2, node3)
-          // 當從外部（非 localhost/127.0.0.1，如 ngrok 或實體 IP）連線時，
-          // 直接對應到 Vite Proxy 相對路徑，避免外部無法存取 1001/2001/3001 port 以及 Mixed Content 封鎖。
-          if (fetchHostname !== 'localhost' && fetchHostname !== '127.0.0.1') {
-            if (nodeServer.includes(':1001')) {
-              nodeServer = '/node1-api';
-            } else if (nodeServer.includes(':2001')) {
-              nodeServer = '/node2-api';
-            } else if (nodeServer.includes(':3001')) {
-              nodeServer = '/node3-api';
-            } else {
-              try {
-                const url = new URL(nodeServer);
-                url.hostname = fetchHostname;
-                nodeServer = url.toString().replace(/\/$/, "");
-              } catch (e) {
-                nodeServer = nodeServer.replace('127.0.0.1', fetchHostname).replace('localhost', fetchHostname);
-              }
-            }
-          } else {
-            // 本機開發環境，直接替換 hostname
-            try {
-              const url = new URL(nodeServer);
-              url.hostname = fetchHostname;
-              nodeServer = url.toString().replace(/\/$/, ""); // 移除結尾的斜線
-            } catch (e) {
-              nodeServer = nodeServer.replace('127.0.0.1', fetchHostname).replace('localhost', fetchHostname);
-            }
-          }
-        } else {
-          // 本機上的節點 (node4, node5)，將 127.0.0.1 替換為本機實體 LAN IP (192.168.171.43)
+        if (isLocalNodePort) {
           try {
             const url = new URL(nodeServer);
             url.hostname = '192.168.171.43';
@@ -115,13 +104,14 @@ export async function fetchServers(){
           }
         }
       }
-      return { ...item, server: nodeServer };
+      return typeof item === 'string' ? { server: nodeServer } : { ...item, server: nodeServer };
     });
 
-    console.info(cacheHosts);
+    console.info('[fetchServers] Successfully loaded hosts:', cacheHosts);
     return getServers();
   } catch (err) {
     console.error('Error while fetching server, err:', err);
+    return [];
   }
 }
 
@@ -383,6 +373,37 @@ export async function loadIdentities(...ids) {
 }
 
 /**
+ * 查询指定 id 的人员，並保留 meta 資訊（hashcode、revoked）
+ * 供需要取得真實 Tx Hash 的場景使用
+ * @param {...string} ids
+ * @returns {Promise<Array<{id, document, hashcode, revoked}>>}
+ */
+export async function loadIdentitiesWithMeta(...ids) {
+  try {
+    const response = await axiosInstance.post(`/did/load`, {ids: ids}, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (response.data.error) {
+      throw (response.data.error);
+    }
+
+    const items = response.data.value || [];
+    // 印出完整 raw item 供診斷，確認後端究竟回傳哪些欄位
+    console.log('[loadIdentitiesWithMeta] raw response.data:', JSON.stringify(response.data, null, 2));
+    items.forEach((item, i) => {
+      console.log(`[loadIdentitiesWithMeta] item[${i}] keys:`, Object.keys(item), 'values:', JSON.stringify(item));
+    });
+    return items;
+  } catch (error) {
+    console.error('failed to get identities with meta:', error);
+    throw error;
+  }
+}
+
+/**
  * 修改人员
  * @param {Object} person - 人员信息
  * @returns {Promise} - 请求结果
@@ -593,3 +614,158 @@ function formatTodayStringPair() {
   const endStr = formatTimeString(end).slice(0, -4);
   return [startStr, endStr];
 }
+
+/**
+ * 獲取硬碟與儲存空間資訊
+ */
+export async function fetchStorageSize() {
+  const endpoints = [
+    '/app-api/api/storagesize',
+    '/api/storagesize'
+  ];
+
+  if (fetchURL) {
+    try {
+      const u = new URL(fetchURL);
+      // 如果 fetchURL 包含 /app-api/api/appservers，導出 /app-api/api/storagesize
+      const storageUrl = fetchURL.replace('/appservers', '/storagesize');
+      endpoints.unshift(storageUrl);
+    } catch (e) {
+      // fallback
+    }
+  }
+
+  endpoints.push('http://localhost:3166/api/storagesize');
+
+  for (const ep of endpoints) {
+    try {
+      const res = await fetch(ep, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.success) {
+          return data;
+        }
+      }
+    } catch (e) {
+      // continue to next endpoint
+    }
+  }
+
+  return { success: false, chainnode: 'N/A', data: 'N/A' };
+}
+
+/**
+ * 查詢真實區塊高度與節點 RPC 狀態
+ * @param {string} serverUrl - 伺服器網址
+ * @returns {Promise<number|null>} - 最新區塊高度或 null
+ */
+export async function fetchRealNodeStatus(serverUrl) {
+  if (!serverUrl) return null;
+
+  let rpcUrl = '';
+  if (serverUrl.includes('/node1-api') || serverUrl.includes(':1001')) {
+    rpcUrl = '/node-rpc/status';
+  } else if (serverUrl.includes('/node2-api') || serverUrl.includes(':2001')) {
+    rpcUrl = '/node2-rpc/status';
+  } else if (serverUrl.includes('/node3-api') || serverUrl.includes(':3001')) {
+    rpcUrl = '/node3-rpc/status';
+  } else {
+    try {
+      const url = new URL(serverUrl);
+      const port = parseInt(url.port, 10);
+      let rpcPort = 26657;
+      if (port >= 1001) {
+        const nodeIndex = Math.round((port - 1001) / 1000);
+        rpcPort = 26657 + nodeIndex * 1000;
+      }
+      const targetHostname = url.hostname === '192.168.171.43' ? '127.0.0.1' : url.hostname;
+      rpcUrl = `http://${targetHostname}:${rpcPort}/status`;
+    } catch (e) {
+      rpcUrl = `${serverUrl}/status`;
+    }
+  }
+
+  try {
+    const response = await fetch(rpcUrl);
+    if (response.ok) {
+      const data = await response.json();
+      const height = data.result?.sync_info?.latest_block_height;
+      if (height !== undefined) {
+        return parseInt(height, 10);
+      }
+    }
+  } catch (e) {
+    console.error('fetchRealNodeStatus error:', e);
+  }
+  return null;
+}
+
+/**
+ * 多節點同步共識查驗：向各節點查詢同一筆 ID 紀錄，比對是否一致
+ * @param {string} id - 識別碼
+ * @param {string} [fallbackServer] - 選取的備用 Server
+ * @returns {Promise<Array<{server: string, name: string, found: boolean, data: object|null, error?: string}>>}
+ */
+export async function queryAllNodesForId(id, fallbackServer = '') {
+  const allServers = getServers();
+  const currentFallback = fallbackServer || getServer() || '';
+  if (!allServers || allServers.length === 0) {
+    return [{ server: currentFallback, name: 'Node1', found: false, data: null }];
+  }
+
+  const nodeResults = await Promise.all(
+    allServers.map(async (item, idx) => {
+      const serverUrl = typeof item === 'string' ? item : item.server;
+      const token = (typeof item === 'object' && item.token) ? item.token : null;
+      const nodeName = `Node${idx + 1}`;
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const resp = await axios.post(`${serverUrl}/did/load`, { ids: [id] }, { headers, timeout: 8000 });
+        const items = resp.data?.value || [];
+        const found = items.some(v => v.id === id || (v.document && (v.document.id === id)));
+        return { server: serverUrl, name: nodeName, found, data: items[0] || null };
+      } catch (e) {
+        console.warn(`[multiNodeCheck] ${nodeName} (${serverUrl}) failed:`, e.message);
+        return { server: serverUrl, name: nodeName, found: false, data: null, error: e.message };
+      }
+    })
+  );
+  return nodeResults;
+}
+
+/**
+ * 多節點同步共識查驗：向各節點查詢同一筆 Tx Hash 紀錄，比對是否一致
+ * @param {string} hash - 交易 Hash
+ * @param {string} [fallbackServer] - 選取的備用 Server
+ * @returns {Promise<Array<{server: string, name: string, found: boolean, data: object|null, error?: string}>>}
+ */
+export async function queryAllNodesForHash(hash, fallbackServer = '') {
+  const allServers = getServers();
+  const currentFallback = fallbackServer || getServer() || '';
+  if (!allServers || allServers.length === 0) {
+    return [{ server: currentFallback, name: 'Node1', found: false, data: null }];
+  }
+
+  const nodeResults = await Promise.all(
+    allServers.map(async (item, idx) => {
+      const serverUrl = typeof item === 'string' ? item : item.server;
+      const token = (typeof item === 'object' && item.token) ? item.token : null;
+      const nodeName = `Node${idx + 1}`;
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const resp = await axios.post(`${serverUrl}/did/tx`, { hashes: [hash] }, { headers, timeout: 8000 });
+        const found = resp.data && !resp.data.error && Object.keys(resp.data).length > 0;
+        return { server: serverUrl, name: nodeName, found, data: resp.data || null };
+      } catch (e) {
+        console.warn(`[multiNodeCheck] ${nodeName} (${serverUrl}) failed:`, e.message);
+        return { server: serverUrl, name: nodeName, found: false, data: null, error: e.message };
+      }
+    })
+  );
+  return nodeResults;
+}
+

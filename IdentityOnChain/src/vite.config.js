@@ -4,6 +4,10 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
+// 代理目標優先使用環境變數，若無則預設指向本機 server.js (3166)
+// 當 Web Server 也跑在遠端電腦時，代理目標指向 127.0.0.1:3166 即可免去 ngrok 自環自鎖問題
+const PROXY_TARGET = process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:3166';
+
 // https://vite.dev/config/
 export default defineConfig({
   base: '/',
@@ -20,56 +24,78 @@ export default defineConfig({
     host: true,
     allowedHosts: true,
     proxy: {
-      // 網頁抓名單用：當請求 /api 時，轉發到 3166
+      // 網頁抓名單用：當請求 /app-api 或 /api/appservers 時，轉發到 server.js (3166)
       '/app-api': {
-        target: 'http://localhost:3166',
+        target: PROXY_TARGET,
         changeOrigin: true,
+        secure: false,
+        headers: { 'ngrok-skip-browser-warning': 'true' },
         rewrite: (path) => path.replace(/^\/app-api/, '')
       },
-      // 區塊鏈連線用：當請求 /node1-api 時，轉發到 1001
+      '/api/appservers': {
+        target: PROXY_TARGET,
+        changeOrigin: true,
+        secure: false,
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      },
+      '/api/storagesize': {
+        target: PROXY_TARGET,
+        changeOrigin: true,
+        secure: false,
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      },
+      // 區塊鏈連線用：保留前綴轉發到 server.js (3166) 動態代理
       '/node1-api': {
-        target: 'http://localhost:1001',
+        target: PROXY_TARGET,
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/node1-api/, '')
+        secure: false,
+        headers: { 'ngrok-skip-browser-warning': 'true' }
       },
-      // 相容舊寫法 /node-api 轉發到 1001
+      // 相容舊寫法 /node-api 轉發到 server.js
       '/node-api': {
-        target: 'http://localhost:1001',
+        target: PROXY_TARGET,
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/node-api/, '')
+        secure: false,
+        headers: { 'ngrok-skip-browser-warning': 'true' }
       },
-      // 區塊鏈連線用：當請求 /node2-api 時，轉發到 2001
+      // 區塊鏈連線用：當請求 /node2-api 時，轉發到 server.js
       '/node2-api': {
-        target: 'http://localhost:2001',
+        target: PROXY_TARGET,
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/node2-api/, '')
+        secure: false,
+        headers: { 'ngrok-skip-browser-warning': 'true' }
       },
-      // 區塊鏈連線用：當請求 /node3-api 時，轉發到 3001
+      // 區塊鏈連線用：當請求 /node3-api 時，轉發到 server.js
       '/node3-api': {
-        target: 'http://localhost:3001',
+        target: PROXY_TARGET,
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/node3-api/, '')
+        secure: false,
+        headers: { 'ngrok-skip-browser-warning': 'true' }
       },
-      // 區塊鏈 RPC 連線用，轉發到對應的 CometBFT 連接埠
+      // 區塊鏈 RPC 連線用，保留前綴轉發至 server.js 動態代理
       '/node-rpc': {
-        target: 'http://localhost:26657',
+        target: PROXY_TARGET,
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/node-rpc/, '')
+        secure: false,
+        headers: { 'ngrok-skip-browser-warning': 'true' }
       },
       '/node1-rpc': {
-        target: 'http://localhost:26657',
+        target: PROXY_TARGET,
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/node1-rpc/, '')
+        secure: false,
+        headers: { 'ngrok-skip-browser-warning': 'true' }
       },
       '/node2-rpc': {
-        target: 'http://localhost:27657',
+        target: PROXY_TARGET,
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/node2-rpc/, '')
+        secure: false,
+        headers: { 'ngrok-skip-browser-warning': 'true' }
       },
       '/node3-rpc': {
-        target: 'http://localhost:28657',
+        target: PROXY_TARGET,
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/node3-rpc/, '')
+        secure: false,
+        headers: { 'ngrok-skip-browser-warning': 'true' }
       }
     }
   }

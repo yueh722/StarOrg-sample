@@ -40,6 +40,7 @@
     <div class="button-group">
       <button @click="runTests">Run Test</button>
       <button @click="queryBlockHeight">查詢最新區塊高度</button>
+      <button @click="queryStorageSize">查詢儲存空間</button>
     </div>
     <textarea v-model="log" rows="20" cols="80" readonly></textarea>
   </div>
@@ -52,7 +53,7 @@ import {
   updateIdentity as updatePerson,
   revokeIdentity as deletePerson,
   getDefaultPerson, getFetchURL, fetchServerListFromURL, getServers, setServer as setServerAPI, setServer, getServer,
-  getUserId, searchIdentities, searchTodayIdentities, loadIdentities, updateIdentity,
+  getUserId, searchIdentities, searchTodayIdentities, loadIdentities, updateIdentity, fetchStorageSize,
 } from '@/api/identity.js';
 import {localInsertPerson} from "@/api/personList.js";
 
@@ -67,13 +68,19 @@ export default {
       log: '',
       identities: [], // 保存生成的 identities
       lock: false, // 简单的锁标志
-      fetchURL: getFetchURL(),
+      fetchURL: getFetchURL() || 'https://repeater-passover-blurb.ngrok-free.dev/api/appservers',
       serverlist: getServers(),
       selectedServer: getServer(), // 当前选中的服务器
       writeLock: Promise.resolve(),
       lastIndex: 0,
       latestHeight: null
     };
+  },
+  async mounted() {
+    if (!this.fetchURL) {
+      this.fetchURL = 'https://repeater-passover-blurb.ngrok-free.dev/api/appservers';
+    }
+    await this.applyFetchURL();
   },
   computed: {
     // 将serverlist转换为选项数组
@@ -596,6 +603,25 @@ export default {
         }
       } catch (error) {
         this.log += `[${new Date().toLocaleTimeString()}] 節點 ${server} 查詢失敗: 無法連線 (${error.message || error})\n`;
+      }
+    },
+
+    async queryStorageSize() {
+      try {
+        const data = await fetchStorageSize();
+        if (data && data.success) {
+          this.log += `[${new Date().toLocaleTimeString()}] 查詢硬碟與儲存空間成功：\n`;
+          this.log += `區塊鏈帳本資料庫空間 [含 node1~3 帳本] (C:\\ProgramData\\chainnode\\data): ${data.data}\n`;
+          this.log += `鏈節點系統總佔用空間 [包含上述帳本及日誌/配置/執行檔] (C:\\ProgramData\\chainnode): ${data.chainnode}\n`;
+          if (data.diskTotal && data.diskFree) {
+            this.log += `系統磁碟 (C:) 總容量: ${data.diskTotal}，剩餘可用: ${data.diskFree}\n`;
+          }
+          this.log += `\n`;
+        } else {
+          this.log += `[${new Date().toLocaleTimeString()}] [警告] 無法讀取儲存空間 (請確認 node server.js 後台服務是否已重啟)\n\n`;
+        }
+      } catch (e) {
+        this.log += `[${new Date().toLocaleTimeString()}] [警告] 無法讀取儲存空間: ${e.message || e}\n\n`;
       }
     }
   },
