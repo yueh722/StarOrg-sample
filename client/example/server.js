@@ -6,6 +6,13 @@ import { setServerAddress } from "./conn.js";
 import fs from "fs";
 import path from "path";
 
+// ── 節點設定（新增節點時在此擴充）──────────────────────────────────
+const NODES = [
+    { id: 'node1', apiPort: 1001, rpcPort: 26657 },
+    { id: 'node2', apiPort: 2001, rpcPort: 27657 },
+    { id: 'node3', apiPort: 3001, rpcPort: 28657 },
+];
+
 function getDirSize(dirPath) {
     let size = 0;
     try {
@@ -37,6 +44,129 @@ async function fetchServers() {
         });
     }
     return servers;
+}
+
+// Token → Port 對照表快取，TTL 60 秒
+let tokenPortCache = null;
+let tokenPortCacheTime = 0;
+const TOKEN_PORT_CACHE_TTL = 60 * 1000;
+
+async function getTokenPortMap() {
+    const now = Date.now();
+    if (tokenPortCache && (now - tokenPortCacheTime) < TOKEN_PORT_CACHE_TTL) {
+        return tokenPortCache;
+    }
+    try {
+        const servers = await GetServerAddrOfABCIApp();
+        if (servers.success && Array.isArray(servers.data)) {
+            const map = {};
+            for (const item of servers.data) {
+                // item.server 格式: "127.0.0.1:1001"
+                const portMatch = String(item.server).match(/:([0-9]+)$/);
+                if (portMatch && item.token) {
+                    map[item.token] = parseInt(portMatch[1], 10);
+                }
+            }
+            tokenPortCache = map;
+            tokenPortCacheTime = now;
+            return map;
+        }
+    } catch (e) {
+        console.error('[getTokenPortMap] error:', e.message);
+    }
+    return tokenPortCache || {};
+}
+
+// 向指定 RPC port 查詢 CometBFT 節點狀態（內部用，不經 proxyToLocal）
+function fetchNodeRpcStatus(rpcPort) {
+    return new Promise((resolve) => {
+        const req = httpRequest(
+            { hostname: '127.0.0.1', port: rpcPort, path: '/status', method: 'GET' },
+            (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                    try { resolve({ ok: true, data: JSON.parse(data) }); }
+                    catch (e) { resolve({ ok: false }); }
+                });
+            }
+        );
+        req.on('error', () => resolve({ ok: false }));
+        req.setTimeout(3000, () => { req.destroy(); resolve({ ok: false }); });
+        req.end();
+    });
+}
+
+// GET /nodes/status：並行查全部節點 RPC + 共用硬碟資訊
+async function handleNodesStatus(res) {
+    // 硬碟資訊（各節點跑在同一台機器，共用同一顆磁碟）
+    const programDataPath = process.env.ProgramData || 'C:\\ProgramData';
+    let totalBytes = 0, usedBytes = 0;
+    try {
+        if (typeof fs.statfsSync === 'function') {
+            const st = fs.statfsSync(programDataPath);
+            totalBytes = st.bsize * st.blocks;
+            usedBytes  = totalBytes - st.bsize * st.bavail;
+        }
+    } catch (e) { /* statfs 不可用時留 0 */ }
+
+    const results = await Promise.all(NODES.map(async (node) => {
+        const rpc = await fetchNodeRpcStatus(node.rpcPort);
+        if (rpc.ok) {
+            const sync = rpc.data?.result?.sync_info || {};
+            return {
+                nodeId:            node.id,
+                online:            true,
+                latestBlockHeight: parseInt(sync.latest_block_height || '0', 10),
+                latestBlockHash:   sync.latest_block_hash   || null,
+                latestBlockTime:   sync.latest_block_time   || null,
+                disk: { totalBytes, usedBytes }
+            };
+        } else {
+            return {
+                nodeId:            node.id,
+                online:            false,
+                latestBlockHeight: null,
+                latestBlockHash:   null,
+                latestBlockTime:   null,
+                disk: { totalBytes, usedBytes }
+            };
+        }
+    }));
+
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.end(JSON.stringify(results));
+}
+
+// /did/ 路由：優先用 ?node= 參數，次用 Bearer Token，最後 fallback node1
+async function proxyDid(req, res, urlPath) {
+    // 解析 query string，取出 ?node=，轉發時去除該參數
+    const qIdx = urlPath.indexOf('?');
+    const cleanPath   = qIdx >= 0 ? urlPath.slice(0, qIdx) : urlPath;
+    const queryString = qIdx >= 0 ? urlPath.slice(qIdx + 1) : '';
+    const params      = new URLSearchParams(queryString);
+    const nodeParam   = params.get('node'); // e.g. "node2" 或 "2"
+
+    let targetPort = 1001; // fallback
+
+    if (nodeParam) {
+        // ?node=node2 或 ?node=2 都支援
+        const found = NODES.find(n => n.id === nodeParam || n.id === `node${nodeParam}`);
+        if (found) targetPort = found.apiPort;
+        console.log(`[/did/] ?node=${nodeParam} → port ${targetPort}`);
+    } else {
+        // 以 Bearer Token 比對節點
+        const authHeader = req.headers['authorization'] || '';
+        const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+        if (token) {
+            const map = await getTokenPortMap();
+            if (map[token]) targetPort = map[token];
+        }
+        console.log(`[/did/] token-based → port ${targetPort}`);
+    }
+
+    proxyToLocal(targetPort, cleanPath, req, res);
 }
 
 function proxyToLocal(targetPort, targetPath, req, res) {
@@ -141,8 +271,10 @@ const server = createServer(async (req, res) => {
         proxyToLocal(28657, targetPath, req, res);
     } else if (urlPath.startsWith('/status')) {
         proxyToLocal(26657, urlPath, req, res);
+    } else if (req.method === 'GET' && urlPath === '/nodes/status') {
+        await handleNodesStatus(res);
     } else if (urlPath.startsWith('/did/')) {
-        proxyToLocal(1001, urlPath, req, res);
+        await proxyDid(req, res, urlPath);
     } else {
         res.statusCode = 404;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');

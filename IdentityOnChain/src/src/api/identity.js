@@ -149,6 +149,65 @@ axiosInstance.interceptors.request.use((config) => {
   return config;
 });
 
+// ── 401 自動刷新 Token 攔截器 ────────────────────────────────────────────
+// 注意 axios 的 Promise 鏈機制：
+//   success handler 裡 return Promise.reject() 不會觸發「同一個」interceptor 的 error handler，
+//   而是直接傳給呼叫端。因此必須在兩個 handler 裡都直接執行刷新重試邏輯。
+
+async function doRefreshAndRetry(config) {
+  config._isRetry = true;
+  console.warn('[axiosInstance] 401 Token 失效，自動刷新 Token 後重試...');
+  try {
+    const newServers = await fetchServers();
+    if (newServers && newServers.length > 0) {
+      const firstItem = cacheHosts[0];
+      if (firstItem?.token) {
+        setGlobalToken(firstItem.token);
+        config.headers = config.headers || {};
+        config.headers['Authorization'] = `Bearer ${firstItem.token}`;
+      }
+      console.info('[axiosInstance] Token 已刷新，重試請求:', config.url);
+      return axiosInstance(config);
+    }
+  } catch (refreshErr) {
+    console.error('[axiosInstance] 刷新 Token 失敗:', refreshErr.message);
+  }
+  return Promise.reject(new Error('Token 刷新失敗，請手動重新整理頁面'));
+}
+
+axiosInstance.interceptors.response.use(
+  async (response) => {
+    const data = response.data;
+    // 後端以 HTTP 200 + body {code:401} 回報 Token 失效
+    if (data && (data.code === 401 || data.code === '401')) {
+      const config = response.config;
+      if (config?._isRetry) {
+        // 已重試過仍 401，直接拋錯給呼叫端
+        const err = new Error(data.message || 'Token is invalid or expired');
+        err.response = { status: 401, data };
+        throw err;
+      }
+      // 在 success handler 內直接執行刷新重試（不能靠 reject 轉給 error handler）
+      return doRefreshAndRetry(config);
+    }
+    return response;
+  },
+  async (error) => {
+    const config = error.config;
+
+    // 判斷是否為 HTTP 401
+    const is401 = error.response?.status === 401
+      || error.response?.data?.code === 401
+      || error.response?.data?.code === '401';
+
+    if (is401 && !config?._isRetry) {
+      return doRefreshAndRetry(config);
+    }
+
+    return Promise.reject(error);
+  }
+);
+
 // 设置默认请求头
 axiosInstance.defaults.headers.post['Content-Type'] = 'application/json';
 axiosInstance.defaults.headers.put['Content-Type'] = 'application/json';

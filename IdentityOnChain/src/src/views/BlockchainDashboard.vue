@@ -199,7 +199,7 @@
             <div class="condition-query-grid">
               <div class="query-field">
                 <label for="dash-query-id">id:</label>
-                <input id="dash-query-id" v-model="queryId" type="text" class="dash-input font-mono" placeholder="請輸入 ID 前綴" />
+                <input id="dash-query-id" v-model="queryId" type="text" class="dash-input font-mono" placeholder="不填 = 查全部，可輸入如 user:new:" />
               </div>
               <div class="query-field">
                 <label for="dash-query-start">開始時間:</label>
@@ -361,6 +361,7 @@ export default {
       verifyResults: [],
 
       // 交易歷史進階查詢欄位 (加到 dashboard.vue)
+      // 空白 = 查全部（後端無法純時間查詢，內部自動補 'user:new:' 前綴）
       queryId: '',
       queryStartTime: '2026-09-01 00:00:00',
       queryEndTime: (() => {
@@ -952,7 +953,12 @@ export default {
           }
         };
 
+        // 後端 db.go 的 emptyPrefixRegex 機制：
+        // 當 prefix="" 時，後端組出的搜尋 key 為純時間字串 (如 "20260901_000000")
+        // → 後端自動切換為全表掃描 + 時間過濾模式，與 ID 前綴無關
+        // 當 prefix 有值時，後端以 (prefix+startTime)～(prefix+endTime) 做範圍掃描
         await doSearch(id_prefix, this.queryOrder);
+        // 若有輸入 id_prefix 但找不到，再 fallback 用空 prefix 做全表時間查詢
         if (allIds.length === 0 && id_prefix) {
           await doSearch('', this.queryOrder);
         }
