@@ -7,15 +7,14 @@ import { StreamClient } from "../src/StreamClient.js";
 import fs from "fs";
 import path from "path";
 
-// ── 節點設定（新增節點時在此擴充，支援動態 Master 廣播與多機器指定 host）────────────
+// ── 節點設定（啟動時預設，後續由 syncNodeTargetsFromMaster 動態對齊 Master 實際節點清單）────────────
 let NODES = [
     { id: 'node1', host: process.env.NODE1_HOST || '127.0.0.1', apiPort: 1001, rpcPort: 26657, token: '' },
-    { id: 'node2', host: process.env.NODE2_HOST || '192.168.171.43', apiPort: 2001, rpcPort: 27657, token: '' },
-    { id: 'node3', host: process.env.NODE3_HOST || '127.0.0.1', apiPort: 3001, rpcPort: 28657, token: '' },
+    { id: 'node2', host: process.env.NODE2_HOST || '192.168.171.43', apiPort: 2001, rpcPort: 27657, token: '' }
 ];
 
 let lastSyncTime = 0;
-// 從 Master 取得最新在線 ABCI App 節點清單，動態更新真實 Host 與 Port
+// 從 Master 取得最新在線 ABCI App 節點清單，動態更新與對齊真實節點清單、Host 與 Port
 async function syncNodeTargetsFromMaster(force = false) {
     const now = Date.now();
     if (!force && (now - lastSyncTime) < 10000) {
@@ -23,7 +22,8 @@ async function syncNodeTargetsFromMaster(force = false) {
     }
     try {
         const servers = await GetServerAddrOfABCIApp();
-        if (servers && servers.success && Array.isArray(servers.data)) {
+        if (servers && servers.success && Array.isArray(servers.data) && servers.data.length > 0) {
+            const syncedNodes = [];
             servers.data.forEach((item, idx) => {
                 if (!item || !item.server) return;
                 // item.server 格式: "192.168.171.43:2001" 或 "127.0.0.1:1001"
@@ -34,18 +34,25 @@ async function syncNodeTargetsFromMaster(force = false) {
                 const port = parseInt(cleanAddr.slice(colonIdx + 1), 10);
                 if (!port) return;
 
-                let target = null;
-                if (port === 1001) target = NODES.find(n => n.id === 'node1');
-                else if (port === 2001) target = NODES.find(n => n.id === 'node2');
-                else if (port === 3001) target = NODES.find(n => n.id === 'node3');
-                else if (idx < NODES.length) target = NODES[idx];
-
-                if (target) {
-                    target.host = host;
-                    target.apiPort = port;
-                    if (item.token) target.token = item.token;
+                let nodeIndex = idx;
+                if (port >= 1001) {
+                    nodeIndex = Math.round((port - 1001) / 1000);
                 }
+                const nodeId = `node${nodeIndex + 1}`;
+                const rpcPort = 26657 + nodeIndex * 1000;
+
+                syncedNodes.push({
+                    id: nodeId,
+                    host: host,
+                    apiPort: port,
+                    rpcPort: rpcPort,
+                    token: item.token || ''
+                });
             });
+
+            if (syncedNodes.length > 0) {
+                NODES = syncedNodes;
+            }
             lastSyncTime = now;
         }
     } catch (e) {
