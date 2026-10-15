@@ -38,10 +38,9 @@ function loadEnv() {
 }
 loadEnv();
 
-// ── 節點設定（啟動時由環境變數/.env 預設，後續由 syncNodeTargetsFromMaster 動態對齊 Master 實際節點清單）────────────
+// ── 節點設定（啟動時預設本機 node1，其餘所有節點由 syncNodeTargetsFromMaster 自動自 Master/Agent 動態取得）────────────
 let NODES = [
-    { id: 'node1', host: process.env.NODE1_HOST || '127.0.0.1', apiPort: parseInt(process.env.NODE1_API_PORT, 10) || 1001, rpcPort: parseInt(process.env.NODE1_RPC_PORT, 10) || 26657, token: '' },
-    { id: 'node2', host: process.env.NODE2_HOST || '127.0.0.1', apiPort: parseInt(process.env.NODE2_API_PORT, 10) || 2001, rpcPort: parseInt(process.env.NODE2_RPC_PORT, 10) || 27657, token: '' }
+    { id: 'node1', host: '127.0.0.1', apiPort: 1001, rpcPort: 26657, token: '' }
 ];
 
 let lastSyncTime = 0;
@@ -525,9 +524,15 @@ const nodeMasterWs = process.env.NODE_MASTER_WS || 'localhost:8080/websocket';
 setServerAddress(nodeMasterWs);
 
 const PORT = parseInt(process.env.PORT, 10) || 3166;
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
     console.log(`✅ HTTP server on http://localhost:${PORT}`);
     console.log(`👉 NodeMaster WebSocket target: ${nodeMasterWs}`);
     console.log(`👉 Query http://localhost:${PORT}/api/appservers to fetch webservice addresses of node app`);
     initStorageStream();
+    await syncNodeTargetsFromMaster(true);
 });
+
+// 定期自動向 Master/Agent 同步最新節點清單與 IP 位址（每 15 秒）
+setInterval(() => {
+    syncNodeTargetsFromMaster().catch(() => {});
+}, 15000);
