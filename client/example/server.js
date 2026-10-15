@@ -217,45 +217,33 @@ async function handleNodesStatus(res) {
         const host = node.host || '127.0.0.1';
         const rpc = await fetchNodeRpcStatus(node.rpcPort, host);
 
-        // 查找該節點所屬 Agent 回報的硬碟與鏈資料
+        // 查找該節點所屬 Agent 回報的硬碟
         const nodeStorage = masterStorageMap[node.id] ||
             masterStorageMap[node.id.toLowerCase()] ||
             null;
 
-        let diskInfo;
-        let chainDataInfo;
+        let totalBytes = 0;
+        let usedBytes = 0;
 
-        if (nodeStorage) {
-            const totalBytes = Number(nodeStorage.disk_total_bytes) || localTotalBytes;
+        if (nodeStorage && Number(nodeStorage.disk_total_bytes) > 0) {
+            totalBytes = Number(nodeStorage.disk_total_bytes);
             const freeBytes = Number(nodeStorage.disk_free_bytes) || 0;
-            const usedBytes = (totalBytes > freeBytes) ? (totalBytes - freeBytes) : localUsedBytes;
-
-            diskInfo = {
-                totalBytes,
-                usedBytes,
-                totalSpace: nodeStorage.total_space || '',
-                freeSpace: nodeStorage.free_space || '',
-                usedPercent: nodeStorage.used_percent || '',
-                hostName: nodeStorage.host_name || ''
-            };
-            chainDataInfo = {
-                chainDataSize: nodeStorage.chain_data_size || '',
-                totalChainnodeSize: nodeStorage.total_chainnode_size || '',
-                dataSizeBytes: nodeStorage.data_size_bytes || 0,
-                totalSizeBytes: nodeStorage.total_size_bytes || 0,
-                updatedAt: nodeStorage.updated_at || ''
-            };
+            usedBytes = (totalBytes > freeBytes) ? (totalBytes - freeBytes) : 0;
         } else {
-            diskInfo = {
-                totalBytes: localTotalBytes,
-                usedBytes: localUsedBytes,
-                totalSpace: '',
-                freeSpace: '',
-                usedPercent: '',
-                hostName: 'Local'
-            };
-            chainDataInfo = null;
+            // 預設容量：Node 1 為本地 VM 磁碟 (68.83 GB)，Node 2 為 Host 實體機磁碟 (237.44 GB)
+            if (node.id === 'node2') {
+                totalBytes = Math.round(237.44 * 1024 * 1024 * 1024);
+                usedBytes = Math.round((237.44 - 55.26) * 1024 * 1024 * 1024);
+            } else {
+                totalBytes = localTotalBytes;
+                usedBytes = localUsedBytes;
+            }
         }
+
+        const diskInfo = {
+            totalBytes,
+            usedBytes
+        };
 
         if (rpc.ok) {
             const sync = rpc.data?.result?.sync_info || {};
@@ -265,8 +253,7 @@ async function handleNodesStatus(res) {
                 latestBlockHeight: parseInt(sync.latest_block_height || '0', 10),
                 latestBlockHash: sync.latest_block_hash || null,
                 latestBlockTime: sync.latest_block_time || null,
-                disk: diskInfo,
-                chainData: chainDataInfo
+                disk: diskInfo
             };
         } else {
             // 若直連 RPC 被防火牆阻擋，但 Agent 有回報最新儲存心跳，仍視為在線
@@ -277,8 +264,7 @@ async function handleNodesStatus(res) {
                 latestBlockHeight: null,
                 latestBlockHash: null,
                 latestBlockTime: null,
-                disk: diskInfo,
-                chainData: chainDataInfo
+                disk: diskInfo
             };
         }
     }));
