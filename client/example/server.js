@@ -7,36 +7,6 @@ import { StreamClient } from "../src/StreamClient.js";
 import fs from "fs";
 import path from "path";
 
-// 自動載入同目錄或專案根目錄之 .env 設定檔
-function loadEnv() {
-    const currentFileUrl = new URL(import.meta.url).pathname;
-    const cleanCurrentDir = path.dirname(process.platform === 'win32' ? currentFileUrl.replace(/^\/([a-zA-Z]:)/, '$1') : currentFileUrl);
-    const candidates = [
-        path.join(cleanCurrentDir, '.env'),
-        path.join(process.cwd(), '.env')
-    ];
-    for (const envPath of candidates) {
-        try {
-            if (fs.existsSync(envPath)) {
-                const content = fs.readFileSync(envPath, 'utf8');
-                for (const line of content.split(/\r?\n/)) {
-                    const trimmed = line.trim();
-                    if (!trimmed || trimmed.startsWith('#')) continue;
-                    const eqIdx = trimmed.indexOf('=');
-                    if (eqIdx > 0) {
-                        const key = trimmed.slice(0, eqIdx).trim();
-                        const val = trimmed.slice(eqIdx + 1).trim().replace(/^['"](.*)['"]$/, '$1');
-                        if (process.env[key] === undefined) {
-                            process.env[key] = val;
-                        }
-                    }
-                }
-                break;
-            }
-        } catch (e) { }
-    }
-}
-loadEnv();
 
 // ── 節點設定（啟動時預設本機 node1，其餘所有節點由 syncNodeTargetsFromMaster 自動自 Master/Agent 動態取得）────────────
 let NODES = [
