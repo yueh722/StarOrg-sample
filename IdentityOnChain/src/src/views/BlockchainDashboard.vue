@@ -539,23 +539,15 @@ export default {
       try {
         const targetServer = this.selectedServer || getServer() || (this.serverOptions[0] ? (typeof this.serverOptions[0] === 'string' ? this.serverOptions[0] : this.serverOptions[0].server) : 'node1');
         const res = await fetchStorageSize();
-        if (res && res.success && res.chainnode && res.chainnode !== 'N/A') {
-          let nodeData = null;
-          if (res.nodes && Array.isArray(res.nodes) && res.nodes.length > 0) {
-            const targetName = formatNodeName(targetServer);
-            nodeData = res.nodes.find(n => n.nodeId === targetName || n.nodeName === targetName);
-          }
+        if (res && res.success && Array.isArray(res.nodes) && res.nodes.length > 0) {
+          const targetName = formatNodeName(targetServer);
+          const nodeData = res.nodes.find(n => n.nodeId === targetName || n.nodeName === targetName) || res.nodes[0];
 
           if (nodeData) {
-            this.storageData.chainnode = nodeData.totalChainnodeSize || res.chainnode;
-            this.storageData.data = nodeData.chainDataSize || res.data;
-            this.storageData.diskTotal = nodeData.diskTotal || res.diskTotal || '';
-            this.storageData.diskFree = nodeData.diskFree || res.diskFree || '';
-          } else {
-            this.storageData.chainnode = res.chainnode;
-            this.storageData.data = res.data;
-            this.storageData.diskTotal = res.diskTotal || '';
-            this.storageData.diskFree = res.diskFree || '';
+            this.storageData.chainnode = nodeData.totalChainnodeSize || 'N/A';
+            this.storageData.data = nodeData.chainDataSize || 'N/A';
+            this.storageData.diskTotal = nodeData.diskTotal || '';
+            this.storageData.diskFree = nodeData.diskFree || '';
           }
 
           const cnVal = parseFloat(this.storageData.chainnode) || 0;

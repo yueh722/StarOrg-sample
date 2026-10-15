@@ -738,7 +738,7 @@ export async function fetchStorageSize() {
 
       if (res.ok) {
         const data = await res.json();
-        if (data && data.success && data.chainnode && data.chainnode !== 'N/A') {
+        if (data && data.success && Array.isArray(data.nodes) && data.nodes.length > 0) {
           return data;
         }
       }
@@ -747,7 +747,7 @@ export async function fetchStorageSize() {
     }
   }
 
-  return { success: false, chainnode: 'N/A', data: 'N/A' };
+  return { success: false, nodes: [] };
 }
 
 /**

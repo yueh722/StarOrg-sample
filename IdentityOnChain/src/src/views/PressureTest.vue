@@ -405,13 +405,15 @@ export default {
       reportStr += `\n`;
       try {
         const data = await fetchStorageSize();
-        if (data && data.success && data.chainnode && data.chainnode !== 'N/A') {
-          const count = (data.nodes && data.nodes.length) || (this.serverOptions && this.serverOptions.length) || 2;
-          const nodeRange = count > 1 ? `node1~${count}` : 'node1';
-          reportStr += `區塊鏈帳本資料庫空間 [含 ${nodeRange} 帳本] (C:\\ProgramData\\chainnode\\data): ${data.data}\n`;
-          reportStr += `鏈節點系統總佔用空間 [包含上述帳本及日誌/配置/執行檔] (C:\\ProgramData\\chainnode): ${data.chainnode}\n`;
-          if (data.diskTotal && data.diskFree) {
-            reportStr += `系統磁碟總容量: ${data.diskTotal}，剩餘可用: ${data.diskFree}\n`;
+        if (data && data.success && Array.isArray(data.nodes) && data.nodes.length > 0) {
+          const selectedNodeName = formatNodeName(this.selectedServer);
+          const targetNode = data.nodes.find(n => n.nodeId === selectedNodeName || n.nodeName === selectedNodeName) || data.nodes[0];
+          if (targetNode) {
+            reportStr += `區塊鏈帳本資料庫空間 (C:\\ProgramData\\chainnode\\data): ${targetNode.chainDataSize || 'N/A'}\n`;
+            reportStr += `鏈節點系統總佔用空間 [包含上述帳本及日誌/配置/執行檔] (C:\\ProgramData\\chainnode): ${targetNode.totalChainnodeSize || 'N/A'}\n`;
+            if (targetNode.diskTotal && targetNode.diskFree) {
+              reportStr += `系統磁碟總容量: ${targetNode.diskTotal}，剩餘可用: ${targetNode.diskFree}\n`;
+            }
           }
         } else {
           reportStr += `[警告] 無法自動讀取儲存空間 (請確認 node server.js 後台服務是否已重啟)\n`;
@@ -626,26 +628,23 @@ export default {
     async queryStorageSize() {
       try {
         const data = await fetchStorageSize();
-        if (data && data.success && data.chainnode && data.chainnode !== 'N/A') {
+        if (data && data.success && Array.isArray(data.nodes) && data.nodes.length > 0) {
           const nodeName = formatNodeName(this.selectedServer);
-          let targetNode = null;
-          if (data.nodes && Array.isArray(data.nodes)) {
-            targetNode = data.nodes.find(n => n.nodeId === nodeName || n.nodeName === nodeName);
-          }
-          const diskTotal = targetNode?.diskTotal || data.diskTotal;
-          const diskFree = targetNode?.diskFree || data.diskFree;
-          const chainnode = targetNode?.totalChainnodeSize || data.chainnode;
-          const chainData = targetNode?.chainDataSize || data.data;
+          let targetNode = data.nodes.find(n => n.nodeId === nodeName || n.nodeName === nodeName) || data.nodes[0];
+          if (targetNode) {
+            const diskTotal = targetNode.diskTotal;
+            const diskFree = targetNode.diskFree;
+            const chainnode = targetNode.totalChainnodeSize;
+            const chainData = targetNode.chainDataSize;
 
-          const count = (data.nodes && data.nodes.length) || (this.serverOptions && this.serverOptions.length) || 2;
-          const nodeRange = count > 1 ? `node1~${count}` : 'node1';
-          this.log += `[${new Date().toLocaleTimeString()}] ${nodeName} 查詢硬碟與儲存空間成功：\n`;
-          this.log += `區塊鏈帳本資料庫空間 [含 ${nodeRange} 帳本] (C:\\ProgramData\\chainnode\\data): ${chainData}\n`;
-          this.log += `鏈節點系統總佔用空間 [包含上述帳本及日誌/配置/執行檔] (C:\\ProgramData\\chainnode): ${chainnode}\n`;
-          if (diskTotal && diskFree) {
-            this.log += `系統磁碟 (C:) 總容量: ${diskTotal}，剩餘可用: ${diskFree}\n`;
+            this.log += `[${new Date().toLocaleTimeString()}] ${nodeName} 查詢硬碟與儲存空間成功：\n`;
+            this.log += `區塊鏈帳本資料庫空間 (C:\\ProgramData\\chainnode\\data): ${chainData}\n`;
+            this.log += `鏈節點系統總佔用空間 (C:\\ProgramData\\chainnode): ${chainnode}\n`;
+            if (diskTotal && diskFree) {
+              this.log += `系統磁碟 (C:) 總容量: ${diskTotal}，剩餘可用: ${diskFree}\n`;
+            }
+            this.log += `\n`;
           }
-          this.log += `\n`;
         } else {
           this.log += `[${new Date().toLocaleTimeString()}] [警告] 無法讀取儲存空間 (請確認 node server.js 後台服務是否已重啟)\n\n`;
         }

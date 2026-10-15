@@ -429,44 +429,12 @@ async function handleStorageSize(req, res) {
         }
     }
 
-    if (nodesList.length > 0) {
-        // 若有各 Agent 回報的跨機器資料，加總全部鏈資料
-        let totalChainDataBytes = 0;
-        let totalNodeBytes = 0;
-        for (const n of nodesList) {
-            totalChainDataBytes += (n.dataSizeBytes || 0);
-            totalNodeBytes += (n.totalSizeBytes || 0);
-        }
-
-        const firstNode = nodesList[0];
-
-        res.statusCode = 200;
-        res.setHeader('Content-Type', 'application/json; charset=utf-8');
-        res.end(JSON.stringify({
-            success: true,
-            // 相容現有前端欄位：顯示各節點資料庫空間總和
-            chainnode: (totalNodeBytes / (1024 * 1024)).toFixed(2) + " MB",
-            data: (totalChainDataBytes / (1024 * 1024)).toFixed(2) + " MB",
-            diskTotal: firstNode.diskTotal || localDiskTotal,
-            diskFree: firstNode.diskFree || localDiskFree,
-            // 各別節點獨立狀態（多電腦部署關鍵資訊）
-            nodes: nodesList
-        }));
-    } else {
-        const localChainnodeSize = getDirSize(chainnodePath);
-        const localDataSize = getDirSize(dataPath);
-
-        res.statusCode = 200;
-        res.setHeader('Content-Type', 'application/json; charset=utf-8');
-        res.end(JSON.stringify({
-            success: true,
-            chainnode: (localChainnodeSize / (1024 * 1024)).toFixed(2) + " MB",
-            data: (localDataSize / (1024 * 1024)).toFixed(2) + " MB",
-            diskTotal: localDiskTotal,
-            diskFree: localDiskFree,
-            nodes: []
-        }));
-    }
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.end(JSON.stringify({
+        success: true,
+        nodes: nodesList
+    }));
 }
 
 const server = createServer(async (req, res) => {
