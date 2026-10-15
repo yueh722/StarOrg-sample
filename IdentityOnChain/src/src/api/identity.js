@@ -39,7 +39,7 @@ export function setServer(server){
     } catch (e) {
       return false;
     }
-  }) || cacheHosts.find(item => item.server === server);
+  }) || cacheHosts.find(item => item.server === server || item.server === server.replace(/^\//, '') || ('/' + item.server) === server);
 
   const token = matchedItem?.token || "";
   console.log('select server:', server, 'matched port:', selectedPort, 'token:', token)
@@ -52,6 +52,34 @@ export function getServer(){
 
 export function getFetchURL(){
   return fetchURL
+}
+
+/**
+ * 格式化節點顯示名稱，統一回傳 nodeX (不帶 /，與 Agent GUI 顯示一致)
+ * @param {string|object} opt 
+ * @param {number} [idx=0]
+ * @returns {string} 例如 "node1", "node2"
+ */
+export function formatNodeName(opt, idx = 0) {
+  if (!opt) return `node${idx + 1}`;
+  let s = '';
+  if (typeof opt === 'object') {
+    s = String(opt.server || opt.nodeId || opt.nodeName || opt.name || '');
+  } else {
+    s = String(opt);
+  }
+  const lower = s.toLowerCase();
+  if (lower.includes('1001') || lower.includes('node1') || lower.includes('node-01') || lower.includes('node-1') || lower.includes('master')) return 'node1';
+  if (lower.includes('2001') || lower.includes('node2') || lower.includes('node-02') || lower.includes('node-2') || lower.includes('agent')) return 'node2';
+  if (lower.includes('3001') || lower.includes('node3') || lower.includes('node-03') || lower.includes('node-3')) return 'node3';
+  if (lower.includes('4001') || lower.includes('node4') || lower.includes('node-04') || lower.includes('node-4')) return 'node4';
+
+  const match = lower.match(/node[-_]?0*(\d+)/);
+  if (match) {
+    return `node${match[1]}`;
+  }
+  const clean = s.replace(/^\//, '').replace(/-api$/, '').replace(/-rpc$/, '').trim();
+  return clean || `node${idx + 1}`;
 }
 
 export async function fetchServers(){
@@ -85,13 +113,13 @@ export async function fetchServers(){
 
     cacheHosts = (data.data || []).map(item => {
       let nodeServer = typeof item === 'string' ? item : (item.server || '');
-      // 只要包含 1001, 2001, 3001 埠，一律對應至 Vite Proxy 相對路徑 /node1-api, /node2-api, /node3-api
-      if (nodeServer.includes(':1001')) {
-        nodeServer = '/node1-api';
-      } else if (nodeServer.includes(':2001')) {
-        nodeServer = '/node2-api';
-      } else if (nodeServer.includes(':3001')) {
-        nodeServer = '/node3-api';
+      // 只要包含 1001, 2001, 3001 埠或 nodeX，一律對應至 node1, node2, node3 (不帶 /)
+      if (nodeServer.includes(':1001') || nodeServer === 'node1' || nodeServer === '/node1' || nodeServer === '/node1-api') {
+        nodeServer = 'node1';
+      } else if (nodeServer.includes(':2001') || nodeServer === 'node2' || nodeServer === '/node2' || nodeServer === '/node2-api') {
+        nodeServer = 'node2';
+      } else if (nodeServer.includes(':3001') || nodeServer === 'node3' || nodeServer === '/node3' || nodeServer === '/node3-api') {
+        nodeServer = 'node3';
       } else if (nodeServer.includes('127.0.0.1') || nodeServer.includes('localhost')) {
         const isLocalNodePort = nodeServer.includes(':4001') || nodeServer.includes(':5001');
         if (isLocalNodePort) {
@@ -138,14 +166,14 @@ axiosInstance.interceptors.request.use((config) => {
     return config;
   }
 
-  // 随机选择一个 host
-  const randomHost = hosts[Math.floor(Math.random() * hosts.length)];
-  if (randomHost) {
-    config.baseURL = randomHost; // 动态设置 baseURL
-  } else {
-    config.baseURL = hosts[0];
+  // 随机选择一个 host，若為相對路徑則自動補上前置 / 以確保在瀏覽器以根目錄路徑轉發
+  const randomHost = hosts[Math.floor(Math.random() * hosts.length)] || hosts[0] || 'node1';
+  let hostUrl = typeof randomHost === 'object' ? (randomHost.server || '') : String(randomHost || '');
+  if (hostUrl && !hostUrl.startsWith('http') && !hostUrl.startsWith('/')) {
+    hostUrl = '/' + hostUrl;
   }
-  console.log('Using host:', randomHost);
+  config.baseURL = hostUrl;
+  console.log('Using host:', randomHost, 'baseURL:', config.baseURL);
   return config;
 });
 
@@ -675,7 +703,7 @@ function formatTodayStringPair() {
 }
 
 /**
- * 獲取硬碟與儲存空間資訊
+ * 獲取硬碟與儲存空間資訊（無需 ?node= 參數，後端一次性回傳彙整與各節點明細）
  */
 export async function fetchStorageSize() {
   const endpoints = [
@@ -683,27 +711,34 @@ export async function fetchStorageSize() {
     '/api/storagesize'
   ];
 
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    endpoints.push(`http://${window.location.hostname}:3166/api/storagesize`);
+  }
+  endpoints.push('http://localhost:3166/api/storagesize');
+
   if (fetchURL) {
     try {
       const u = new URL(fetchURL);
-      // 如果 fetchURL 包含 /app-api/api/appservers，導出 /app-api/api/storagesize
-      const storageUrl = fetchURL.replace('/appservers', '/storagesize');
-      endpoints.unshift(storageUrl);
+      const baseUrl = `${u.origin}/api/storagesize`;
+      if (!endpoints.includes(baseUrl)) endpoints.push(baseUrl);
     } catch (e) {
       // fallback
     }
   }
 
-  endpoints.push('http://localhost:3166/api/storagesize');
-
   for (const ep of endpoints) {
     try {
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutId = controller ? setTimeout(() => controller.abort(), 2500) : null;
       const res = await fetch(ep, {
-        headers: { 'ngrok-skip-browser-warning': 'true' }
+        headers: { 'ngrok-skip-browser-warning': 'true' },
+        signal: controller ? controller.signal : undefined
       });
+      if (timeoutId) clearTimeout(timeoutId);
+
       if (res.ok) {
         const data = await res.json();
-        if (data && data.success) {
+        if (data && data.success && data.chainnode && data.chainnode !== 'N/A') {
           return data;
         }
       }
@@ -724,11 +759,11 @@ export async function fetchRealNodeStatus(serverUrl) {
   if (!serverUrl) return null;
 
   let rpcUrl = '';
-  if (serverUrl.includes('/node1-api') || serverUrl.includes(':1001')) {
-    rpcUrl = '/node-rpc/status';
-  } else if (serverUrl.includes('/node2-api') || serverUrl.includes(':2001')) {
+  if (serverUrl.includes('node1') || serverUrl.includes(':1001')) {
+    rpcUrl = '/node1-rpc/status';
+  } else if (serverUrl.includes('node2') || serverUrl.includes(':2001')) {
     rpcUrl = '/node2-rpc/status';
-  } else if (serverUrl.includes('/node3-api') || serverUrl.includes(':3001')) {
+  } else if (serverUrl.includes('node3') || serverUrl.includes(':3001')) {
     rpcUrl = '/node3-rpc/status';
   } else {
     try {

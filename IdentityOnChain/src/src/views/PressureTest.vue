@@ -14,7 +14,7 @@
         <select id="server-select" v-model="selectedServer" @change="onServerChange">
           <option value="">-- 请选择服务器 --</option>
           <option v-for="(opt, index) in serverOptions" :key="index" :value="typeof opt === 'string' ? opt : opt.server">
-            {{ typeof opt === 'string' ? opt : opt.server }}{{ (typeof opt === 'string' || opt.token) ? '' : ' (未連線)' }}
+            {{ formatNodeName(opt) }}{{ (typeof opt === 'string' || opt.token) ? '' : ' (未連線)' }}
           </option>
         </select>
       </div>
@@ -53,7 +53,7 @@ import {
   updateIdentity as updatePerson,
   revokeIdentity as deletePerson,
   getDefaultPerson, getFetchURL, fetchServerListFromURL, getServers, setServer as setServerAPI, setServer, getServer,
-  getUserId, searchIdentities, searchTodayIdentities, loadIdentities, updateIdentity, fetchStorageSize,
+  getUserId, searchIdentities, searchTodayIdentities, loadIdentities, updateIdentity, fetchStorageSize, formatNodeName,
 } from '@/api/identity.js';
 import {localInsertPerson} from "@/api/personList.js";
 
@@ -68,7 +68,13 @@ export default {
       log: '',
       identities: [], // 保存生成的 identities
       lock: false, // 简单的锁标志
-      fetchURL: getFetchURL() || 'https://repeater-passover-blurb.ngrok-free.dev/api/appservers',
+      fetchURL: (() => {
+        const saved = getFetchURL();
+        if (saved && !saved.includes('ngrok-free.dev')) return saved;
+        return typeof window !== 'undefined' && window.location?.hostname
+          ? `http://${window.location.hostname}:3166/api/appservers`
+          : 'http://localhost:3166/api/appservers';
+      })(),
       serverlist: getServers(),
       selectedServer: getServer(), // 当前选中的服务器
       writeLock: Promise.resolve(),
@@ -77,8 +83,10 @@ export default {
     };
   },
   async mounted() {
-    if (!this.fetchURL) {
-      this.fetchURL = 'https://repeater-passover-blurb.ngrok-free.dev/api/appservers';
+    if (!this.fetchURL || this.fetchURL.includes('ngrok-free.dev')) {
+      this.fetchURL = typeof window !== 'undefined' && window.location?.hostname
+        ? `http://${window.location.hostname}:3166/api/appservers`
+        : 'http://localhost:3166/api/appservers';
     }
     await this.applyFetchURL();
   },
@@ -345,16 +353,17 @@ export default {
         const heightPromises = this.serverOptions.map(async (opt) => {
           const serverUrl = typeof opt === 'string' ? opt : opt.server;
           const isOnline = typeof opt === 'string' || !!opt.token;
+          const nodeName = formatNodeName(opt);
           if (!isOnline) {
-            return `節點 ${serverUrl} 目前狀態: 未連線\n`;
+            return `${nodeName} 目前狀態: 未連線\n`;
           }
 
           let rpcUrl = '';
-          if (serverUrl.includes('/node1-api') || serverUrl.includes(':1001')) {
-            rpcUrl = '/node-rpc/status';
-          } else if (serverUrl.includes('/node2-api') || serverUrl.includes(':2001')) {
+          if (serverUrl.includes('node1') || serverUrl.includes(':1001')) {
+            rpcUrl = '/node1-rpc/status';
+          } else if (serverUrl.includes('node2') || serverUrl.includes(':2001')) {
             rpcUrl = '/node2-rpc/status';
-          } else if (serverUrl.includes('/node3-api') || serverUrl.includes(':3001')) {
+          } else if (serverUrl.includes('node3') || serverUrl.includes(':3001')) {
             rpcUrl = '/node3-rpc/status';
           } else {
             try {
@@ -377,13 +386,13 @@ export default {
               const data = await response.json();
               const height = data.result?.sync_info?.latest_block_height;
               if (height !== undefined) {
-                return `節點 ${serverUrl} 目前區塊高度: ${height}\n`;
+                return `${nodeName} 目前區塊高度: ${height}\n`;
               }
             }
           } catch (e) {
-            return `節點 ${serverUrl} 查詢失敗: 無法連線 (${e.message || e})\n`;
+            return `${nodeName} 查詢失敗: 無法連線 (${e.message || e})\n`;
           }
-          return `節點 ${serverUrl} 目前狀態: 無法取得高度\n`;
+          return `${nodeName} 目前狀態: 無法取得高度\n`;
         });
 
         const results = await Promise.all(heightPromises);
@@ -395,15 +404,17 @@ export default {
       }
       reportStr += `\n`;
       try {
-        const response = await fetch('/app-api/api/storagesize');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success) {
-            reportStr += `區塊鏈帳本資料庫空間 [含 node1~3 帳本] (C:\\ProgramData\\chainnode\\data): ${data.data}\n`;
-            reportStr += `鏈節點系統總佔用空間 [包含上述帳本及日誌/配置/執行檔] (C:\\ProgramData\\chainnode): ${data.chainnode}\n`;
+        const data = await fetchStorageSize();
+        if (data && data.success && data.chainnode && data.chainnode !== 'N/A') {
+          const count = (data.nodes && data.nodes.length) || (this.serverOptions && this.serverOptions.length) || 2;
+          const nodeRange = count > 1 ? `node1~${count}` : 'node1';
+          reportStr += `區塊鏈帳本資料庫空間 [含 ${nodeRange} 帳本] (C:\\ProgramData\\chainnode\\data): ${data.data}\n`;
+          reportStr += `鏈節點系統總佔用空間 [包含上述帳本及日誌/配置/執行檔] (C:\\ProgramData\\chainnode): ${data.chainnode}\n`;
+          if (data.diskTotal && data.diskFree) {
+            reportStr += `系統磁碟總容量: ${data.diskTotal}，剩餘可用: ${data.diskFree}\n`;
           }
         } else {
-          reportStr += `[警告] 無法自動讀取儲存空間 (HTTP ${response.status}，請確認 node server.js 後台服務是否已重啟)\n`;
+          reportStr += `[警告] 無法自動讀取儲存空間 (請確認 node server.js 後台服務是否已重啟)\n`;
         }
       } catch (e) {
         reportStr += `[警告] 無法自動讀取儲存空間 (請確認 node server.js 後台服務是否已重啟)，錯誤: ${e.message || e}\n`;
@@ -560,11 +571,11 @@ export default {
       }
 
       let rpcUrl = '';
-      if (server.includes('/node1-api') || server.includes(':1001')) {
+      if (server.includes('node1') || server.includes(':1001')) {
         rpcUrl = '/node1-rpc/status';
-      } else if (server.includes('/node2-api') || server.includes(':2001')) {
+      } else if (server.includes('node2') || server.includes(':2001')) {
         rpcUrl = '/node2-rpc/status';
-      } else if (server.includes('/node3-api') || server.includes(':3001')) {
+      } else if (server.includes('node3') || server.includes(':3001')) {
         rpcUrl = '/node3-rpc/status';
       } else {
         try {
@@ -590,11 +601,12 @@ export default {
           throw new Error(`HTTP 錯誤! 狀態碼: ${response.status}`);
         }
         const data = await response.json();
+        const nodeName = formatNodeName(server);
         if (data && data.result) {
           const height = data.result.sync_info?.latest_block_height;
           if (height !== undefined) {
             this.latestHeight = height;
-            this.log += `[${new Date().toLocaleTimeString()}] 節點 ${server} 目前區塊高度: ${height}\n`;
+            this.log += `[${new Date().toLocaleTimeString()}] ${nodeName} 目前區塊高度: ${height}\n`;
           } else {
             this.log += `[${new Date().toLocaleTimeString()}] 無法解析區塊高度，傳回資料異常\n`;
           }
@@ -602,19 +614,36 @@ export default {
           this.log += `[${new Date().toLocaleTimeString()}] 無法取得區塊高度資料\n`;
         }
       } catch (error) {
-        this.log += `[${new Date().toLocaleTimeString()}] 節點 ${server} 查詢失敗: 無法連線 (${error.message || error})\n`;
+        const nodeName = formatNodeName(server);
+        this.log += `[${new Date().toLocaleTimeString()}] ${nodeName} 查詢失敗: 無法連線 (${error.message || error})\n`;
       }
+    },
+
+    formatNodeName(opt) {
+      return formatNodeName(opt);
     },
 
     async queryStorageSize() {
       try {
         const data = await fetchStorageSize();
-        if (data && data.success) {
-          this.log += `[${new Date().toLocaleTimeString()}] 查詢硬碟與儲存空間成功：\n`;
-          this.log += `區塊鏈帳本資料庫空間 [含 node1~3 帳本] (C:\\ProgramData\\chainnode\\data): ${data.data}\n`;
-          this.log += `鏈節點系統總佔用空間 [包含上述帳本及日誌/配置/執行檔] (C:\\ProgramData\\chainnode): ${data.chainnode}\n`;
-          if (data.diskTotal && data.diskFree) {
-            this.log += `系統磁碟 (C:) 總容量: ${data.diskTotal}，剩餘可用: ${data.diskFree}\n`;
+        if (data && data.success && data.chainnode && data.chainnode !== 'N/A') {
+          const nodeName = formatNodeName(this.selectedServer);
+          let targetNode = null;
+          if (data.nodes && Array.isArray(data.nodes)) {
+            targetNode = data.nodes.find(n => n.nodeId === nodeName || n.nodeName === nodeName);
+          }
+          const diskTotal = targetNode?.diskTotal || data.diskTotal;
+          const diskFree = targetNode?.diskFree || data.diskFree;
+          const chainnode = targetNode?.totalChainnodeSize || data.chainnode;
+          const chainData = targetNode?.chainDataSize || data.data;
+
+          const count = (data.nodes && data.nodes.length) || (this.serverOptions && this.serverOptions.length) || 2;
+          const nodeRange = count > 1 ? `node1~${count}` : 'node1';
+          this.log += `[${new Date().toLocaleTimeString()}] ${nodeName} 查詢硬碟與儲存空間成功：\n`;
+          this.log += `區塊鏈帳本資料庫空間 [含 ${nodeRange} 帳本] (C:\\ProgramData\\chainnode\\data): ${chainData}\n`;
+          this.log += `鏈節點系統總佔用空間 [包含上述帳本及日誌/配置/執行檔] (C:\\ProgramData\\chainnode): ${chainnode}\n`;
+          if (diskTotal && diskFree) {
+            this.log += `系統磁碟 (C:) 總容量: ${diskTotal}，剩餘可用: ${diskFree}\n`;
           }
           this.log += `\n`;
         } else {

@@ -25,10 +25,10 @@
         </div>
         <div class="input-group flex-1">
           <label for="dash-server-select">選擇區塊鏈節點：</label>
-          <select id="dash-server-select" v-model="selectedServer" @change="onServerChange">
+          <select id="dash-server-select" v-model="selectedServer" @change="onServerChange" class="dash-select" style="min-width: 220px;">
             <option value="">-- 請選擇節點 --</option>
             <option v-for="(opt, idx) in serverOptions" :key="idx" :value="typeof opt === 'string' ? opt : opt.server">
-              {{ typeof opt === 'string' ? opt : opt.server }}
+              {{ formatServerOption(opt, idx) }}
             </option>
           </select>
         </div>
@@ -55,7 +55,7 @@
           <div class="node-metrics-grid">
             <div class="metric-box">
               <span class="metric-label">目前選擇節點</span>
-              <span class="metric-value font-mono">{{ selectedServer || '未選擇' }}</span>
+              <span class="metric-value font-mono">{{ selectedServerDisplayName }}</span>
             </div>
             <div class="metric-box">
               <span class="metric-label">最新區塊高度 (Height)</span>
@@ -77,7 +77,7 @@
             <div class="topology-nodes">
               <div class="topo-node master" :class="{ active: isNodeOnline }">
                 <div class="topo-icon">🖥️</div>
-                <div class="topo-name">NodeMaster</div>
+                <div class="topo-name">node1 (NodeMaster)</div>
                 <div class="topo-ip">Port: 1001</div>
               </div>
               <div class="topo-connector" :class="{ active: isNodeOnline }">
@@ -85,7 +85,7 @@
               </div>
               <div class="topo-node agent" :class="{ active: isNodeOnline }">
                 <div class="topo-icon">💻</div>
-                <div class="topo-name">NodeAgent</div>
+                <div class="topo-name">node2 (NodeAgent)</div>
                 <div class="topo-ip">Port: 2001</div>
               </div>
             </div>
@@ -97,7 +97,7 @@
       <section class="card storage-monitoring-card">
         <div class="card-header">
           <h2><span class="card-icon">💾</span> 2. 硬碟與儲存空間監控</h2>
-          <button class="btn btn-sm btn-outline" @click="loadStorageSize">重新檢測容量</button>
+          <button class="btn btn-sm btn-outline" @click="loadStorageSize()">重新檢測容量</button>
         </div>
         <div class="card-body">
           <div class="storage-summary">
@@ -108,7 +108,7 @@
             <div class="storage-item">
               <span class="storage-label">鏈節點系統總佔用空間 (chainnode)</span>
               <span class="storage-value font-mono">{{ storageData.chainnode }}</span>
-            </div>
+          </div>
           </div>
 
           <!-- 容量佔用視覺化圖表 -->
@@ -118,7 +118,7 @@
               <span class="font-mono">
                 ChainNode 已使用 {{ storageData.chainnode }}
                 <template v-if="storageData.diskFree"> (磁碟剩餘可用 {{ storageData.diskFree }} / 總容量 {{ storageData.diskTotal }})</template>
-              </span>
+            </span>
             </div>
             <!-- C: 槽硬碟空間分佈橫條 -->
             <div class="meter-bar-container">
@@ -129,8 +129,8 @@
               <span><span class="legend-dot chainnode"></span> ChainNode 佔用: {{ diskMetrics.chainnodeGB }} GB ({{ diskMetrics.chainnodePercent }}%)</span>
               <span><span class="legend-dot other"></span> 其他系統/檔案: {{ diskMetrics.otherGB }} GB ({{ diskMetrics.otherPercent }}%)</span>
               <span><span class="legend-dot free"></span> 磁碟剩餘可用: {{ diskMetrics.freeGB }} GB ({{ diskMetrics.freePercent }}%)</span>
-            </div>
           </div>
+        </div>
         </div>
       </section>
 
@@ -305,22 +305,26 @@ import {
   getServer, 
   getFetchURL, 
   fetchStorageSize, 
+  formatNodeName,
   searchTodayIdentities, 
   searchTodayIds, 
-  searchIdentities,
-  loadIdentities,
-  loadIdentitiesWithMeta,
-  getIdentityByHash,
-  fetchRealNodeStatus,
-  queryAllNodesForId,
-  queryAllNodesForHash
+  searchIdentities, 
+  loadIdentities, 
+  loadIdentitiesWithMeta, 
+  getIdentityByHash, 
+  fetchRealNodeStatus, 
+  queryAllNodesForId, 
+  queryAllNodesForHash 
 } from '@/api/identity.js';
 
 export default {
   name: 'BlockchainDashboard',
   data() {
+    const defaultFetchURL = typeof window !== 'undefined' && window.location?.hostname
+      ? `http://${window.location.hostname}:3166/api/appservers`
+      : 'http://localhost:3166/api/appservers';
     return {
-      fetchURL: getFetchURL() || 'https://repeater-passover-blurb.ngrok-free.dev/api/appservers',
+      fetchURL: getFetchURL() || defaultFetchURL,
       selectedServer: '',
       serverOptions: [],
       loading: false,
@@ -388,6 +392,10 @@ export default {
     isNodeOnline() {
       return !!this.selectedServer;
     },
+    selectedServerDisplayName() {
+      if (!this.selectedServer) return '未選擇';
+      return this.formatServerOption(this.selectedServer);
+    },
     diskMetrics() {
       const cnMB = parseFloat(this.storageData.chainnode) || 0;
       const cnGB = cnMB / 1024;
@@ -440,7 +448,7 @@ export default {
     this.queryEndTime = `${year}-${month}-${day} ${hours}:${mins}:${secs}`;
 
     const savedUrl = getFetchURL();
-    if (savedUrl) {
+    if (savedUrl && !savedUrl.includes('ngrok-free.dev')) {
       this.fetchURL = savedUrl;
     }
     const currentServ = getServer();
@@ -465,8 +473,9 @@ export default {
         const servers = await fetchServerListFromURL(this.fetchURL);
         if (servers && servers.length > 0) {
           this.serverOptions = servers;
-          if (!this.selectedServer) {
-            this.selectedServer = typeof servers[0] === 'string' ? servers[0] : servers[0].server;
+          const validValues = servers.map(s => typeof s === 'string' ? s : s.server);
+          if (!this.selectedServer || !validValues.includes(this.selectedServer)) {
+            this.selectedServer = validValues[0];
             setServer(this.selectedServer);
           }
         }
@@ -487,11 +496,15 @@ export default {
       }
     },
 
-    onServerChange() {
+    formatServerOption(opt, idx = 0) {
+      return formatNodeName(opt, idx);
+    },
+
+    async onServerChange() {
       if (this.selectedServer) {
         setServer(this.selectedServer);
-        this.showAlert(`已切換目前區塊鏈節點至: ${this.selectedServer}`, 'alert-success');
-        this.refreshAll();
+        this.showAlert(`已切換目前區塊鏈節點至: ${this.formatServerOption(this.selectedServer)}，正在同步抓取新資料...`, 'alert-success');
+        await this.refreshAll();
       }
     },
 
@@ -521,18 +534,32 @@ export default {
       }
     },
 
-    // 2. 檢測容量
+    // 2. 檢測容量（手動切換節點或刷新時抓取該節點最新資料）
     async loadStorageSize() {
       try {
+        const targetServer = this.selectedServer || getServer() || (this.serverOptions[0] ? (typeof this.serverOptions[0] === 'string' ? this.serverOptions[0] : this.serverOptions[0].server) : 'node1');
         const res = await fetchStorageSize();
-        if (res && res.chainnode) {
-          this.storageData.chainnode = res.chainnode;
-          this.storageData.data = res.data;
-          this.storageData.diskTotal = res.diskTotal || '';
-          this.storageData.diskFree = res.diskFree || '';
+        if (res && res.success && res.chainnode && res.chainnode !== 'N/A') {
+          let nodeData = null;
+          if (res.nodes && Array.isArray(res.nodes) && res.nodes.length > 0) {
+            const targetName = formatNodeName(targetServer);
+            nodeData = res.nodes.find(n => n.nodeId === targetName || n.nodeName === targetName);
+          }
 
-          const cnVal = parseFloat(res.chainnode) || 0;
-          const dtVal = parseFloat(res.data) || 0;
+          if (nodeData) {
+            this.storageData.chainnode = nodeData.totalChainnodeSize || res.chainnode;
+            this.storageData.data = nodeData.chainDataSize || res.data;
+            this.storageData.diskTotal = nodeData.diskTotal || res.diskTotal || '';
+            this.storageData.diskFree = nodeData.diskFree || res.diskFree || '';
+          } else {
+            this.storageData.chainnode = res.chainnode;
+            this.storageData.data = res.data;
+            this.storageData.diskTotal = res.diskTotal || '';
+            this.storageData.diskFree = res.diskFree || '';
+          }
+
+          const cnVal = parseFloat(this.storageData.chainnode) || 0;
+          const dtVal = parseFloat(this.storageData.data) || 0;
           this.storageData.totalMB = cnVal.toFixed(2);
           this.storageData.dataShare = cnVal > 0 ? ((dtVal / cnVal) * 100).toFixed(1) : 0;
         }
@@ -1321,6 +1348,7 @@ export default {
 .legend-dot.chainnode { background: #38bdf8; }
 .legend-dot.other { background: #64748b; }
 .legend-dot.free { background: #10b981; }
+
 
 /* 3. 今日統計 */
 .stats-cards-row {

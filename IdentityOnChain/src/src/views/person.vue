@@ -14,7 +14,7 @@
           <select id="server-select" v-model="selectedServer" @change="onServerChange">
             <option value="">-- 请选择服务器 --</option>
             <option v-for="(opt, index) in serverOptions" :key="index" :value="typeof opt === 'string' ? opt : opt.server">
-              {{ typeof opt === 'string' ? opt : opt.server }}{{ (typeof opt === 'string' || opt.token) ? '' : ' (未連線)' }}
+              {{ formatNodeName(opt, index) }}{{ (typeof opt === 'string' || opt.token) ? '' : ' (未連線)' }}
             </option>
           </select>
         </div>
@@ -159,6 +159,7 @@ import {
   getDefaultPerson, getFetchURL,
   getNewPerson, getServers,
   fetchServerListFromURL, setServer, getServer, getIdentityByHash, searchTodayIdentities, searchTodayIds,
+  formatNodeName,
 } from '@/api/identity.js';
 import {
   localInsertPerson,
@@ -210,7 +211,13 @@ export default {
       message: '',
       messageClass: '',
       showRevokedPerson: false,
-      fetchURL: getFetchURL() || 'https://repeater-passover-blurb.ngrok-free.dev/api/appservers',
+      fetchURL: (() => {
+        const saved = getFetchURL();
+        if (saved && !saved.includes('ngrok-free.dev')) return saved;
+        return typeof window !== 'undefined' && window.location?.hostname
+          ? `http://${window.location.hostname}:3166/api/appservers`
+          : 'http://localhost:3166/api/appservers';
+      })(),
       serverlist: getServers(),
       selectedServer: getServer(), // 当前选中的服务器
       txHashes: '',
@@ -233,8 +240,10 @@ export default {
     const secs = String(d.getSeconds()).padStart(2, '0');
     this.queryEndTime = `${year}-${month}-${day} ${hours}:${mins}:${secs}`;
 
-    if (!this.fetchURL) {
-      this.fetchURL = 'https://repeater-passover-blurb.ngrok-free.dev/api/appservers';
+    if (!this.fetchURL || this.fetchURL.includes('ngrok-free.dev')) {
+      this.fetchURL = typeof window !== 'undefined' && window.location?.hostname
+        ? `http://${window.location.hostname}:3166/api/appservers`
+        : 'http://localhost:3166/api/appservers';
     }
     await this.applyFetchURL();
   },
@@ -283,6 +292,9 @@ export default {
     },
   },
   methods: {
+    formatNodeName(opt, idx = 0) {
+      return formatNodeName(opt, idx);
+    },
     // 获取当前选中的服务器内容
     getSelectedServer() {
       return this.selectedServer;
