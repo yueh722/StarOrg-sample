@@ -7,10 +7,41 @@ import { StreamClient } from "../src/StreamClient.js";
 import fs from "fs";
 import path from "path";
 
-// ── 節點設定（啟動時預設，後續由 syncNodeTargetsFromMaster 動態對齊 Master 實際節點清單）────────────
+// 自動載入同目錄或專案根目錄之 .env 設定檔
+function loadEnv() {
+    const currentFileUrl = new URL(import.meta.url).pathname;
+    const cleanCurrentDir = path.dirname(process.platform === 'win32' ? currentFileUrl.replace(/^\/([a-zA-Z]:)/, '$1') : currentFileUrl);
+    const candidates = [
+        path.join(cleanCurrentDir, '.env'),
+        path.join(process.cwd(), '.env')
+    ];
+    for (const envPath of candidates) {
+        try {
+            if (fs.existsSync(envPath)) {
+                const content = fs.readFileSync(envPath, 'utf8');
+                for (const line of content.split(/\r?\n/)) {
+                    const trimmed = line.trim();
+                    if (!trimmed || trimmed.startsWith('#')) continue;
+                    const eqIdx = trimmed.indexOf('=');
+                    if (eqIdx > 0) {
+                        const key = trimmed.slice(0, eqIdx).trim();
+                        const val = trimmed.slice(eqIdx + 1).trim().replace(/^['"](.*)['"]$/, '$1');
+                        if (process.env[key] === undefined) {
+                            process.env[key] = val;
+                        }
+                    }
+                }
+                break;
+            }
+        } catch (e) { }
+    }
+}
+loadEnv();
+
+// ── 節點設定（啟動時由環境變數/.env 預設，後續由 syncNodeTargetsFromMaster 動態對齊 Master 實際節點清單）────────────
 let NODES = [
-    { id: 'node1', host: process.env.NODE1_HOST || '127.0.0.1', apiPort: 1001, rpcPort: 26657, token: '' },
-    { id: 'node2', host: process.env.NODE2_HOST || '192.168.171.43', apiPort: 2001, rpcPort: 27657, token: '' }
+    { id: 'node1', host: process.env.NODE1_HOST || '127.0.0.1', apiPort: parseInt(process.env.NODE1_API_PORT, 10) || 1001, rpcPort: parseInt(process.env.NODE1_RPC_PORT, 10) || 26657, token: '' },
+    { id: 'node2', host: process.env.NODE2_HOST || '127.0.0.1', apiPort: parseInt(process.env.NODE2_API_PORT, 10) || 2001, rpcPort: parseInt(process.env.NODE2_RPC_PORT, 10) || 27657, token: '' }
 ];
 
 let lastSyncTime = 0;
@@ -222,21 +253,22 @@ async function handleNodesStatus(res) {
             masterStorageMap[node.id.toLowerCase()] ||
             null;
 
-        let totalBytes = 0;
-        let usedBytes = 0;
+        let totalBytes = null;
+        let usedBytes = null;
 
         if (nodeStorage && Number(nodeStorage.disk_total_bytes) > 0) {
             totalBytes = Number(nodeStorage.disk_total_bytes);
             const freeBytes = Number(nodeStorage.disk_free_bytes) || 0;
             usedBytes = (totalBytes > freeBytes) ? (totalBytes - freeBytes) : 0;
         } else {
-            // 預設容量：Node 1 為本地 VM 磁碟 (68.83 GB)，Node 2 為 Host 實體機磁碟 (237.44 GB)
-            if (node.id === 'node2') {
-                totalBytes = Math.round(237.44 * 1024 * 1024 * 1024);
-                usedBytes = Math.round((237.44 - 55.26) * 1024 * 1024 * 1024);
-            } else {
+            // 本地節點且能讀取到本地真實磁碟時帶入真實量測值；其餘尚未收到 Agent 回報時明確回傳 null，不捏造數值
+            const isLocal = node.host === '127.0.0.1' || node.host === 'localhost';
+            if (isLocal && localTotalBytes > 0) {
                 totalBytes = localTotalBytes;
                 usedBytes = localUsedBytes;
+            } else {
+                totalBytes = null;
+                usedBytes = null;
             }
         }
 
@@ -382,49 +414,41 @@ async function handleStorageSize(req, res) {
 
     let localDiskTotal = "";
     let localDiskFree = "";
+    let localTotalBytes = 0;
+    let localFreeBytes = 0;
     try {
         if (typeof fs.statfsSync === 'function') {
             const stats = fs.statfsSync(programDataPath);
-            const totalBytes = stats.bsize * stats.blocks;
-            const freeBytes = stats.bsize * stats.bavail;
-            localDiskTotal = (totalBytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
-            localDiskFree = (freeBytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+            localTotalBytes = stats.bsize * stats.blocks;
+            localFreeBytes = stats.bsize * stats.bavail;
+            localDiskTotal = (localTotalBytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+            localDiskFree = (localFreeBytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
         }
     } catch (e) { }
 
-    // 當 Master 尚未廣播各 Agent 儲存時，以已知節點清單建立預設節點狀態
+    // 當 Master 尚未廣播各 Agent 儲存時，依已知節點清單建立預設節點狀態（無 Agent 回報時明確標示 '-'，不捏造虛擬數值）
     if (nodesList.length === 0) {
-        const localChainnodeSize = getDirSize(chainnodePath);
-        const localDataSize = getDirSize(dataPath);
+        for (const node of NODES) {
+            const isLocal = node.host === '127.0.0.1' || node.host === 'localhost';
+            const nodeChainnodeSize = isLocal ? getDirSize(chainnodePath) : 0;
+            const nodeDataSize = isLocal ? getDirSize(dataPath) : 0;
 
-        // Node 1 (本地 VM 主機)
-        nodesList.push({
-            nodeId: 'node1',
-            nodeName: 'node1',
-            hostName: 'VM-Node1',
-            location: '127.0.0.1',
-            diskTotal: localDiskTotal,
-            diskFree: localDiskFree,
-            chainDataSize: (localDataSize / (1024 * 1024)).toFixed(2) + " MB",
-            totalChainnodeSize: (localChainnodeSize / (1024 * 1024)).toFixed(2) + " MB",
-            dataSizeBytes: localDataSize,
-            totalSizeBytes: localChainnodeSize
-        });
-
-        // Node 2 (實體主機)
-        const n2 = NODES.find(n => n.id === 'node2');
-        if (n2) {
             nodesList.push({
-                nodeId: 'node2',
-                nodeName: 'node2',
-                hostName: 'Host-PC',
-                location: n2.host || '192.168.171.43',
-                diskTotal: '237.44 GB',
-                diskFree: '55.26 GB',
-                chainDataSize: (localDataSize / (1024 * 1024)).toFixed(2) + " MB",
-                totalChainnodeSize: '2177.92 MB',
-                dataSizeBytes: localDataSize,
-                totalSizeBytes: 2177.92 * 1024 * 1024
+                nodeId: node.id,
+                nodeName: node.id,
+                hostName: isLocal ? (process.env.COMPUTERNAME || process.env.HOSTNAME || 'Local') : '-',
+                location: node.host || '-',
+                diskTotal: isLocal && localDiskTotal ? localDiskTotal : '-',
+                diskFree: isLocal && localDiskFree ? localDiskFree : '-',
+                diskUsed: '-',
+                diskUsedPercent: '-',
+                diskTotalBytes: isLocal ? localTotalBytes : 0,
+                diskFreeBytes: isLocal ? localFreeBytes : 0,
+                chainDataSize: isLocal && nodeDataSize > 0 ? (nodeDataSize / (1024 * 1024)).toFixed(2) + " MB" : '-',
+                totalChainnodeSize: isLocal && nodeChainnodeSize > 0 ? (nodeChainnodeSize / (1024 * 1024)).toFixed(2) + " MB" : '-',
+                dataSizeBytes: nodeDataSize,
+                totalSizeBytes: nodeChainnodeSize,
+                updatedAt: ''
             });
         }
     }
@@ -497,11 +521,13 @@ const server = createServer(async (req, res) => {
 });
 
 // must set server address to nodemaster.
-setServerAddress('localhost:8080/websocket');
+const nodeMasterWs = process.env.NODE_MASTER_WS || 'localhost:8080/websocket';
+setServerAddress(nodeMasterWs);
 
-const PORT = 3166;
+const PORT = parseInt(process.env.PORT, 10) || 3166;
 server.listen(PORT, () => {
     console.log(`✅ HTTP server on http://localhost:${PORT}`);
+    console.log(`👉 NodeMaster WebSocket target: ${nodeMasterWs}`);
     console.log(`👉 Query http://localhost:${PORT}/api/appservers to fetch webservice addresses of node app`);
     initStorageStream();
 });
