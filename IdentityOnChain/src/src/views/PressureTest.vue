@@ -365,6 +365,8 @@ export default {
             rpcUrl = '/node2-rpc/status';
           } else if (serverUrl.includes('node3') || serverUrl.includes(':3001')) {
             rpcUrl = '/node3-rpc/status';
+          } else if (serverUrl.includes('node4') || serverUrl.includes(':4001')) {
+            rpcUrl = '/node4-rpc/status';
           } else {
             try {
               const url = new URL(serverUrl);
@@ -565,6 +567,8 @@ export default {
         rpcUrl = '/node2-rpc/status';
       } else if (server.includes('node3') || server.includes(':3001')) {
         rpcUrl = '/node3-rpc/status';
+      } else if (server.includes('node4') || server.includes(':4001')) {
+        rpcUrl = '/node4-rpc/status';
       } else {
         try {
           const url = new URL(server);

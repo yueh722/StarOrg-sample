@@ -113,15 +113,17 @@ export async function fetchServers() {
 
     cacheHosts = (data.data || []).map(item => {
       let nodeServer = typeof item === 'string' ? item : (item.server || '');
-      // 只要包含 1001, 2001, 3001 埠或 nodeX，一律對應至 node1, node2, node3 (不帶 /)
+      // 只要包含 1001, 2001, 3001, 4001 埠或 nodeX，一律對應至 node1, node2, node3, node4 (不帶 /)
       if (nodeServer.includes(':1001') || nodeServer === 'node1' || nodeServer === '/node1' || nodeServer === '/node1-api') {
         nodeServer = 'node1';
       } else if (nodeServer.includes(':2001') || nodeServer === 'node2' || nodeServer === '/node2' || nodeServer === '/node2-api') {
         nodeServer = 'node2';
       } else if (nodeServer.includes(':3001') || nodeServer === 'node3' || nodeServer === '/node3' || nodeServer === '/node3-api') {
         nodeServer = 'node3';
+      } else if (nodeServer.includes(':4001') || nodeServer === 'node4' || nodeServer === '/node4' || nodeServer === '/node4-api') {
+        nodeServer = 'node4';
       } else if (nodeServer.includes('127.0.0.1') || nodeServer.includes('localhost')) {
-        const isLocalNodePort = nodeServer.includes(':4001') || nodeServer.includes(':5001');
+        const isLocalNodePort = nodeServer.includes(':5001');
         if (isLocalNodePort) {
           try {
             const url = new URL(nodeServer);
@@ -765,6 +767,8 @@ export async function fetchRealNodeStatus(serverUrl) {
     rpcUrl = '/node2-rpc/status';
   } else if (serverUrl.includes('node3') || serverUrl.includes(':3001')) {
     rpcUrl = '/node3-rpc/status';
+  } else if (serverUrl.includes('node4') || serverUrl.includes(':4001')) {
+    rpcUrl = '/node4-rpc/status';
   } else {
     try {
       const url = new URL(serverUrl);

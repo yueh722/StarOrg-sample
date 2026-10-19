@@ -75,7 +75,13 @@ export default defineConfig({
         secure: false,
         headers: { 'ngrok-skip-browser-warning': 'true' }
       },
-      // 區塊鏈連線用：新標準路徑 /node1, /node2, /node3 轉發到 server.js (3166) 動態代理
+      '/node4-rpc': {
+        target: PROXY_TARGET,
+        changeOrigin: true,
+        secure: false,
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      },
+      // 區塊鏈連線用：新標準路徑 /node1, /node2, /node3, /node4 轉發到 server.js (3166) 動態代理
       '/node1': {
         target: PROXY_TARGET,
         changeOrigin: true,
@@ -94,7 +100,13 @@ export default defineConfig({
         secure: false,
         headers: { 'ngrok-skip-browser-warning': 'true' }
       },
-      // 相容舊寫法 /node1-api, /node2-api, /node3-api, /node-api
+      '/node4': {
+        target: PROXY_TARGET,
+        changeOrigin: true,
+        secure: false,
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      },
+      // 相容舊寫法 /node1-api, /node2-api, /node3-api, /node4-api, /node-api
       '/node1-api': {
         target: PROXY_TARGET,
         changeOrigin: true,
@@ -114,6 +126,18 @@ export default defineConfig({
         headers: { 'ngrok-skip-browser-warning': 'true' }
       },
       '/node3-api': {
+        target: PROXY_TARGET,
+        changeOrigin: true,
+        secure: false,
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      },
+      '/node4-api': {
+        target: PROXY_TARGET,
+        changeOrigin: true,
+        secure: false,
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      },
+      '/did': {
         target: PROXY_TARGET,
         changeOrigin: true,
         secure: false,

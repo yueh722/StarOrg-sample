@@ -73,21 +73,18 @@
 
           <!-- 拓撲部署簡圖 -->
           <div class="topology-box">
-            <div class="topology-title">區塊鏈網路分散部署拓撲 (BFT Consensus)</div>
+            <div class="topology-title">區塊鏈網路分散部署拓撲 (4 節點跨機 BFT 共識)</div>
             <div class="topology-nodes">
-              <div class="topo-node master" :class="{ active: isNodeOnline }">
-                <div class="topo-icon">🖥️</div>
-                <div class="topo-name">node1 (NodeMaster)</div>
-                <div class="topo-ip">Port: 1001</div>
-              </div>
-              <div class="topo-connector" :class="{ active: isNodeOnline }">
-                <span>帳本 P2P 同步 (0 Rollback)</span>
-              </div>
-              <div class="topo-node agent" :class="{ active: isNodeOnline }">
-                <div class="topo-icon">💻</div>
-                <div class="topo-name">node2 (NodeAgent)</div>
-                <div class="topo-ip">Port: 2001</div>
-              </div>
+              <template v-for="(node, idx) in topologyNodeList" :key="node.name">
+                <div class="topo-node" :class="[node.type, { active: isNodeOnline }]">
+                  <div class="topo-icon">{{ node.icon }}</div>
+                  <div class="topo-name">{{ node.name }}</div>
+                  <div class="topo-ip">{{ node.hostInfo }}</div>
+                </div>
+                <div v-if="idx < topologyNodeList.length - 1" class="topo-connector" :class="{ active: isNodeOnline }">
+                  <span>P2P 同步</span>
+                </div>
+              </template>
             </div>
           </div>
         </div>
@@ -334,7 +331,7 @@ export default {
       // 1. 節點狀態數據
       nodeStatus: {
         latestBlockHeight: 1248,
-        peersCount: 2,
+        peersCount: 4,
         consensusState: 'CometBFT (Tendermint)',
         blockTime: '< 1s'
       },
@@ -386,6 +383,27 @@ export default {
     };
   },
   computed: {
+    topologyNodeList() {
+      if (this.serverOptions && this.serverOptions.length > 0) {
+        return this.serverOptions.map((opt, idx) => {
+          const name = formatNodeName(opt, idx);
+          const port = 1001 + idx * 1000;
+          const host = (name === 'node4') ? 'PC2: 4001' : (idx === 0 ? 'PC1 (Master): 1001' : `PC1: ${port}`);
+          return {
+            name,
+            hostInfo: host,
+            type: idx === 0 ? 'master' : 'agent',
+            icon: idx === 0 ? '🖥️' : (name === 'node4' ? '🌐' : '💻')
+          };
+        });
+      }
+      return [
+        { name: 'node1', hostInfo: 'PC1 (Master): 1001', type: 'master', icon: '🖥️' },
+        { name: 'node2', hostInfo: 'PC1: 2001', type: 'agent', icon: '💻' },
+        { name: 'node3', hostInfo: 'PC1: 3001', type: 'agent', icon: '💻' },
+        { name: 'node4', hostInfo: 'PC2: 4001', type: 'agent', icon: '🌐' }
+      ];
+    },
     displayHistoryList() {
       return this.queryResultsList.length > 0 ? this.queryResultsList : this.todayList;
     },
@@ -473,6 +491,7 @@ export default {
         const servers = await fetchServerListFromURL(this.fetchURL);
         if (servers && servers.length > 0) {
           this.serverOptions = servers;
+          this.nodeStatus.peersCount = servers.length;
           const validValues = servers.map(s => typeof s === 'string' ? s : s.server);
           if (!this.selectedServer || !validValues.includes(this.selectedServer)) {
             this.selectedServer = validValues[0];
