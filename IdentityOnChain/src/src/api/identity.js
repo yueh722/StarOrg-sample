@@ -10,16 +10,16 @@ let cacheHosts = [];
 let hosts = [];
 let fetchURL = '';
 
-export async function fetchServerListFromURL(urlStr){
+export async function fetchServerListFromURL(urlStr) {
   fetchURL = urlStr
   return await fetchServers()
 }
 
-export function getServers(){
+export function getServers() {
   return cacheHosts;
 }
 
-export function setServer(server){
+export function setServer(server) {
   hosts = [server]
 
   // 取得所選 server 的 Port
@@ -46,11 +46,11 @@ export function setServer(server){
   setGlobalToken(token)
 }
 
-export function getServer(){
+export function getServer() {
   return hosts[0];
 }
 
-export function getFetchURL(){
+export function getFetchURL() {
   return fetchURL
 }
 
@@ -82,7 +82,7 @@ export function formatNodeName(opt, idx = 0) {
   return clean || `node${idx + 1}`;
 }
 
-export async function fetchServers(){
+export async function fetchServers() {
   try {
     let targetURL = fetchURL;
 
@@ -93,7 +93,7 @@ export async function fetchServers(){
         if (u.hostname !== 'localhost' && u.hostname !== '127.0.0.1') {
           targetURL = `${u.origin}/api/appservers`;
         }
-      } catch(e) {}
+      } catch (e) { }
     }
 
     let res;
@@ -292,18 +292,18 @@ function formatTodayDateOnlyString() {
  * 搜索今天建立的所有 Identities（不限前綴，以今天日期前端筛選）
  * @returns {Promise} - Identity array
  */
-export async function searchTodayIdentities(){
+export async function searchTodayIdentities() {
   try {
     const todayStr = formatTodayDateOnlyString(); // e.g. "20260709"
     const [startTime, endTime] = formatTodayStringPair(); // "YYYYMMDD_000000" ~ "YYYYMMDD_235959"
 
     // prefix 空白 + 今天時間範圍，後端會搜尋 key 在時間範圍內的所有資料
     const idPartial = await searchIdentities({
-      prefix:    '',
+      prefix: '',
       startTime: startTime,
-      endTime:   endTime,
-      order:     'asc',
-      limit:     10000,
+      endTime: endTime,
+      order: 'asc',
+      limit: 10000,
     });
 
     // 前端再以 ID 包含今天日期確認（防御跨日残留資料）
@@ -323,7 +323,7 @@ export async function searchTodayIdentities(){
 * 搜索今天建立的 identities 的 ids（不限前綴）
 * @returns {Promise} - { normal: string[], revoked: string[] }
  */
-export async function searchTodayIds(){
+export async function searchTodayIds() {
   try {
     const allIds = await searchTodayIdentities();
 
@@ -342,7 +342,7 @@ export async function searchTodayIds(){
       normal: normalPersons,
       revoked: revokedPersons
     }
-  }catch(error){
+  } catch (error) {
     console.error('failed to fetch identities:', error);
     throw error;
   }
@@ -411,7 +411,7 @@ export function isPersonRevoked(person) {
  */
 export async function loadIdentities(...ids) {
   try {
-    const response = await axiosInstance.post(`/did/load`, {ids: ids},{
+    const response = await axiosInstance.post(`/did/load`, { ids: ids }, {
       headers: {
         'Content-Type': 'application/json', // 确保请求头为 JSON
       },
@@ -440,7 +440,7 @@ export async function loadIdentities(...ids) {
       if (!person.id) {
         person.id = item.id;
       }
-      if (item.revoked){
+      if (item.revoked) {
         person.name += revokedFlag
       }
 
@@ -467,7 +467,7 @@ export async function loadIdentities(...ids) {
  */
 export async function loadIdentitiesWithMeta(...ids) {
   try {
-    const response = await axiosInstance.post(`/did/load`, {ids: ids}, {
+    const response = await axiosInstance.post(`/did/load`, { ids: ids }, {
       headers: {
         'Content-Type': 'application/json',
       },
@@ -534,9 +534,9 @@ export async function updateIdentity(person) {
  */
 export async function revokeIdentity(id) {
   try {
-/*    if (await isPersonRevokedRemote(id)){
-      throw new Error(id + ' is already revoked');
-    }*/
+    /*    if (await isPersonRevokedRemote(id)){
+          throw new Error(id + ' is already revoked');
+        }*/
 
     const response = await axiosInstance.delete(`/did/revoke/${id}`);
 
@@ -626,8 +626,8 @@ export const getDefaultPerson = () => ({
 });
 
 export function generateGuid() {
-  return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
-      (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+  return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
+    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
   );
 }
 
@@ -686,7 +686,7 @@ function formatTimeString(date) {
 }
 
 // format: yyyyMMdd_hhmmssSSSS
-function formatNowStringLong(){
+function formatNowStringLong() {
   return formatTimeString(new Date());
 }
 
@@ -862,4 +862,4 @@ export async function queryAllNodesForHash(hash, fallbackServer = '') {
   );
   return nodeResults;
 }
-
+

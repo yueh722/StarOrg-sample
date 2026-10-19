@@ -554,23 +554,9 @@ export default {
       this.log += `${id}_${fullTime}\n`;
     },
 
-    async queryBlockHeight() {
-      const server = getServer();
-      if (!server) {
-        alert('請先選擇一個伺服器！');
-        return;
-      }
-
-      // Check online status in serverOptions
-      const matchedOpt = this.serverOptions.find(opt => {
-        const url = typeof opt === 'string' ? opt : opt.server;
-        return url === server;
-      });
-      const isOnline = !matchedOpt || typeof matchedOpt === 'string' || !!matchedOpt.token;
-      if (!isOnline) {
-        this.log += `[${new Date().toLocaleTimeString()}] 節點 ${server} 目前狀態: 未連線\n`;
-        return;
-      }
+    async fetchNodeRpcHeight(serverOpt) {
+      const server = typeof serverOpt === 'string' ? serverOpt : (serverOpt?.server || '');
+      const nodeName = formatNodeName(serverOpt);
 
       let rpcUrl = '';
       if (server.includes('node1') || server.includes(':1001')) {
@@ -588,8 +574,6 @@ export default {
             const nodeIndex = Math.round((port - 1001) / 1000);
             rpcPort = 26657 + nodeIndex * 1000;
           }
-          // 由於 CometBFT RPC 僅綁定在 127.0.0.1，且瀏覽器安全限制（Mixed Content）會阻擋 HTTPS 網頁向實體 LAN IP 發送 HTTP 請求，
-          // 但允許向 127.0.0.1 發送 HTTP 請求。因此若為本機節點，查詢 RPC 時改用 127.0.0.1。
           const targetHostname = url.hostname === '192.168.171.43' ? '127.0.0.1' : url.hostname;
           rpcUrl = `http://${targetHostname}:${rpcPort}/status`;
         } catch (e) {
@@ -598,27 +582,95 @@ export default {
       }
 
       try {
-        const response = await fetch(rpcUrl);
-        if (!response.ok) {
-          throw new Error(`HTTP 錯誤! 狀態碼: ${response.status}`);
-        }
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const tid = controller ? setTimeout(() => controller.abort(), 3500) : null;
+        const response = await fetch(rpcUrl, { signal: controller ? controller.signal : undefined });
+        if (tid) clearTimeout(tid);
+        if (!response.ok) throw new Error(`HTTP 錯誤! 狀態碼: ${response.status}`);
         const data = await response.json();
-        const nodeName = formatNodeName(server);
-        if (data && data.result) {
-          const height = data.result.sync_info?.latest_block_height;
-          if (height !== undefined) {
-            this.latestHeight = height;
-            this.log += `[${new Date().toLocaleTimeString()}] ${nodeName} 目前區塊高度: ${height}\n`;
+        const height = data.result?.sync_info?.latest_block_height;
+        return {
+          name: nodeName,
+          online: true,
+          height: height !== undefined ? parseInt(height, 10) : null
+        };
+      } catch (error) {
+        return {
+          name: nodeName,
+          online: false,
+          height: null,
+          error: error.message || '無法連線'
+        };
+      }
+    },
+
+    async queryBlockHeight() {
+      this.log += `[${new Date().toLocaleTimeString()}] 開始查詢所有節點最新區塊高度...\n`;
+
+      // 1. 優先嘗試向 server.js 的 /nodes/status 一次性取回全部節點狀態
+      let nodesStatusList = null;
+      try {
+        const endpoints = ['/nodes/status', 'http://localhost:3166/nodes/status'];
+        if (typeof window !== 'undefined' && window.location?.hostname) {
+          endpoints.splice(1, 0, `http://${window.location.hostname}:3166/nodes/status`);
+        }
+        for (const ep of endpoints) {
+          try {
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const tid = controller ? setTimeout(() => controller.abort(), 2500) : null;
+            const res = await fetch(ep, {
+              headers: { 'ngrok-skip-browser-warning': 'true' },
+              signal: controller ? controller.signal : undefined
+            });
+            if (tid) clearTimeout(tid);
+            if (res.ok) {
+              const list = await res.json();
+              if (Array.isArray(list) && list.length > 0) {
+                nodesStatusList = list;
+                break;
+              }
+            }
+          } catch {}
+        }
+      } catch {}
+
+      if (nodesStatusList && nodesStatusList.length > 0) {
+        this.log += `[${new Date().toLocaleTimeString()}] 全節點區塊高度查詢結果 (共 ${nodesStatusList.length} 個節點)：\n`;
+        this.log += `--------------------------------------------------\n`;
+        nodesStatusList.forEach(n => {
+          const name = formatNodeName(n.nodeId || n.nodeName || n);
+          if (n.online && n.latestBlockHeight !== null && n.latestBlockHeight !== undefined) {
+            this.log += `  • 【${name}】目前區塊高度: ${n.latestBlockHeight} (在線)\n`;
+            if (this.latestHeight === null || n.latestBlockHeight > this.latestHeight) {
+              this.latestHeight = n.latestBlockHeight;
+            }
           } else {
-            this.log += `[${new Date().toLocaleTimeString()}] 無法解析區塊高度，傳回資料異常\n`;
+            this.log += `  • 【${name}】未連線或無法取得高度\n`;
+          }
+        });
+        this.log += `--------------------------------------------------\n\n`;
+        return;
+      }
+
+      // 2. Fallback: 若無 /nodes/status，並行向 serverOptions 各節點 RPC 查詢
+      let targets = (this.serverOptions && this.serverOptions.length > 0)
+        ? this.serverOptions
+        : ['node1', 'node2'];
+
+      const results = await Promise.all(targets.map(opt => this.fetchNodeRpcHeight(opt)));
+      this.log += `[${new Date().toLocaleTimeString()}] 全節點區塊高度查詢結果 (共 ${results.length} 個節點)：\n`;
+      this.log += `--------------------------------------------------\n`;
+      results.forEach(res => {
+        if (res.online && res.height !== null) {
+          this.log += `  • 【${res.name}】目前區塊高度: ${res.height} (在線)\n`;
+          if (this.latestHeight === null || res.height > this.latestHeight) {
+            this.latestHeight = res.height;
           }
         } else {
-          this.log += `[${new Date().toLocaleTimeString()}] 無法取得區塊高度資料\n`;
+          this.log += `  • 【${res.name}】未連線 (${res.error || '無法取得'})\n`;
         }
-      } catch (error) {
-        const nodeName = formatNodeName(server);
-        this.log += `[${new Date().toLocaleTimeString()}] ${nodeName} 查詢失敗: 無法連線 (${error.message || error})\n`;
-      }
+      });
+      this.log += `--------------------------------------------------\n\n`;
     },
 
     formatNodeName(opt) {
@@ -629,24 +681,26 @@ export default {
       try {
         const data = await fetchStorageSize();
         if (data && data.success && Array.isArray(data.nodes) && data.nodes.length > 0) {
-          const nodeName = formatNodeName(this.selectedServer);
-          let targetNode = data.nodes.find(n => n.nodeId === nodeName || n.nodeName === nodeName) || data.nodes[0];
-          if (targetNode) {
-            const diskTotal = targetNode.diskTotal;
-            const diskFree = targetNode.diskFree;
-            const chainnode = targetNode.totalChainnodeSize;
-            const chainData = targetNode.chainDataSize;
+          this.log += `[${new Date().toLocaleTimeString()}] 查詢硬碟與儲存空間成功 (全節點共 ${data.nodes.length} 個)：\n`;
+          data.nodes.forEach(node => {
+            const nodeName = node.nodeName || node.nodeId || '未知節點';
+            const diskTotal = node.diskTotal || '-';
+            const diskFree = node.diskFree || '-';
+            const chainnode = node.totalChainnodeSize || '-';
+            const chainData = node.chainDataSize || '-';
+            const loc = node.location && node.location !== '-' ? ` (${node.location})` : '';
 
-            this.log += `[${new Date().toLocaleTimeString()}] ${nodeName} 查詢硬碟與儲存空間成功：\n`;
-            this.log += `區塊鏈帳本資料庫空間 (C:\\ProgramData\\chainnode\\data): ${chainData}\n`;
-            this.log += `鏈節點系統總佔用空間 (C:\\ProgramData\\chainnode): ${chainnode}\n`;
-            if (diskTotal && diskFree) {
-              this.log += `系統磁碟 (C:) 總容量: ${diskTotal}，剩餘可用: ${diskFree}\n`;
+            this.log += `--------------------------------------------------\n`;
+            this.log += `【節點: ${nodeName}${loc}】\n`;
+            this.log += `  - 區塊鏈帳本資料庫空間 (data): ${chainData}\n`;
+            this.log += `  - 鏈節點系統總佔用空間 (chainnode): ${chainnode}\n`;
+            if (diskTotal !== '-' || diskFree !== '-') {
+              this.log += `  - 系統磁碟總容量: ${diskTotal}，剩餘可用: ${diskFree}\n`;
             }
-            this.log += `\n`;
-          }
+          });
+          this.log += `--------------------------------------------------\n\n`;
         } else {
-          this.log += `[${new Date().toLocaleTimeString()}] [警告] 無法讀取儲存空間 (請確認 node server.js 後台服務是否已重啟)\n\n`;
+          this.log += `[${new Date().toLocaleTimeString()}] [警告] 無法讀取儲存空間 (請確認 node server.js 後台服務是否已啟動)\n\n`;
         }
       } catch (e) {
         this.log += `[${new Date().toLocaleTimeString()}] [警告] 無法讀取儲存空間: ${e.message || e}\n\n`;

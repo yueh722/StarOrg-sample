@@ -36,8 +36,8 @@ function enableCorsInConfig(nodeId, nodeName) {
             // 2. 將 persistent_peers 中屬於 VM 節點的 127.0.0.1 替換為 VM 的實體 IP
             if (content.includes('@127.0.0.1:26656') || content.includes('@127.0.0.1:27656') || content.includes('@127.0.0.1:28656')) {
                 content = content.replace(/@127\.0\.0\.1:26656/g, '@192.168.171.194:26656')
-                                 .replace(/@127\.0\.0\.1:27656/g, '@192.168.171.194:27656')
-                                 .replace(/@127\.0\.0\.1:28656/g, '@192.168.171.194:28656');
+                    .replace(/@127\.0\.0\.1:27656/g, '@192.168.171.194:27656')
+                    .replace(/@127\.0\.0\.1:28656/g, '@192.168.171.194:28656');
                 modified = true;
                 console.log(`  - 已自動將 ${nodeName} 的 VM 節點 P2P 連線位址更正為 192.168.171.194`);
             }
@@ -128,7 +128,7 @@ async function main() {
         console.log(`\n⚙️ Initializing and adding uninitialized local node(s): ${uninitializedNames.join(', ')}...`);
 
         // 自行計算 Port，避免多個本機節點分配到相同 Port 造成衝突
-        function makePort(portIndex, nodeIndex){
+        function makePort(portIndex, nodeIndex) {
             const startPort = [
                 26656, // p2p_port
                 26657, // rpc_port
@@ -165,7 +165,7 @@ async function main() {
                 console.error(`❌ Add Node ${nodeName} failed:`, typeof res === 'string' ? res : res.error);
                 process.exit(1);
             }
-            
+
             // 新增節點後，在啟動前為其 config.toml 啟用 CORS
             enableCorsInConfig(node.node_info.node_id, nodeName);
             succeedCount++;

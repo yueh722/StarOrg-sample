@@ -6,11 +6,28 @@ import { setServerAddress, GetConnection } from "./conn.js";
 import { StreamClient } from "../src/StreamClient.js";
 import fs from "fs";
 import path from "path";
+import os from "os";
+
+function getLocalIp() {
+    try {
+        const ifaces = os.networkInterfaces();
+        for (const name of Object.keys(ifaces)) {
+            for (const net of ifaces[name]) {
+                if (net.family === 'IPv4' && !net.internal && !net.address.startsWith('169.254.')) {
+                    return net.address;
+                }
+            }
+        }
+    } catch (e) { }
+    return '127.0.0.1';
+}
 
 
-// ── 節點設定（啟動時預設本機 node1，其餘所有節點由 syncNodeTargetsFromMaster 自動自 Master/Agent 動態取得）────────────
+// ── 節點設定（啟動時預設本機 node1 與 B 電腦 node2，其餘所有節點由 syncNodeTargetsFromMaster 動態取得）────────────
+const NODE2_HOST = process.env.NODE2_HOST || '192.168.171.43';
 let NODES = [
-    { id: 'node1', host: '127.0.0.1', apiPort: 1001, rpcPort: 26657, token: '' }
+    { id: 'node1', host: '127.0.0.1', apiPort: 1001, rpcPort: 26657, token: '' },
+    { id: 'node2', host: NODE2_HOST, apiPort: 2001, rpcPort: 27657, token: '' }
 ];
 
 let lastSyncTime = 0;
@@ -30,7 +47,7 @@ async function syncNodeTargetsFromMaster(force = false) {
                 const cleanAddr = String(item.server).replace(/^https?:\/\//, '');
                 const colonIdx = cleanAddr.lastIndexOf(':');
                 if (colonIdx === -1) return;
-                const host = cleanAddr.slice(0, colonIdx) || '127.0.0.1';
+                let host = cleanAddr.slice(0, colonIdx) || '127.0.0.1';
                 const port = parseInt(cleanAddr.slice(colonIdx + 1), 10);
                 if (!port) return;
 
@@ -40,6 +57,11 @@ async function syncNodeTargetsFromMaster(force = false) {
                 }
                 const nodeId = `node${nodeIndex + 1}`;
                 const rpcPort = 26657 + nodeIndex * 1000;
+
+                // 跨電腦部署校正：node2 運行於 B 電腦，若被回報為本機回環則校正為真實 IP
+                if (nodeId === 'node2' && (host === '127.0.0.1' || host === 'localhost' || host === 'node2')) {
+                    host = NODE2_HOST;
+                }
 
                 syncedNodes.push({
                     id: nodeId,
@@ -178,9 +200,13 @@ async function getTokenPortMap() {
 
 // 向指定 RPC port 查詢 CometBFT 節點狀態（內部用，不經 proxyToLocal）
 function fetchNodeRpcStatus(rpcPort, host = '127.0.0.1') {
+    let targetHost = host;
+    if (rpcPort === 27657 && (targetHost === '127.0.0.1' || targetHost === 'localhost' || targetHost === 'node2')) {
+        targetHost = NODE2_HOST;
+    }
     return new Promise((resolve) => {
         const req = httpRequest(
-            { hostname: host, port: rpcPort, path: '/status', method: 'GET' },
+            { hostname: targetHost, port: rpcPort, path: '/status', method: 'GET' },
             (res) => {
                 let data = '';
                 res.on('data', chunk => data += chunk);
@@ -356,11 +382,18 @@ async function handleStorageSize(req, res) {
             const totalBytes = Number(item.disk_total_bytes) || 0;
             const freeBytes = Number(item.disk_free_bytes) || 0;
             const usedBytes = (totalBytes > freeBytes) ? (totalBytes - freeBytes) : 0;
+            const targetId = item.node_name || id;
+            const matchedNode = NODES.find(n => n.id === targetId || n.id === item.node_id);
+            let nodeLocation = matchedNode?.host || '-';
+            if (nodeLocation === '127.0.0.1' || nodeLocation === 'localhost') {
+                nodeLocation = getLocalIp() || '127.0.0.1';
+            }
+
             nodesList.push({
                 nodeId: item.node_id,
                 nodeName: item.node_name || id,
-                hostName: '',
-                location: '-',
+                hostName: item.host_name || (process.env.COMPUTERNAME || process.env.HOSTNAME || ''),
+                location: nodeLocation,
                 diskTotal: item.total_space || (totalBytes > 0 ? (totalBytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB' : '-'),
                 diskFree: item.free_space || (freeBytes > 0 ? (freeBytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB' : '-'),
                 diskUsed: item.used_space || (usedBytes > 0 ? (usedBytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB' : '-'),
@@ -401,12 +434,13 @@ async function handleStorageSize(req, res) {
             const isLocal = node.host === '127.0.0.1' || node.host === 'localhost';
             const nodeChainnodeSize = isLocal ? getDirSize(chainnodePath) : 0;
             const nodeDataSize = isLocal ? getDirSize(dataPath) : 0;
+            const nodeLocation = isLocal ? (getLocalIp() || '127.0.0.1') : (node.host || '-');
 
             nodesList.push({
                 nodeId: node.id,
                 nodeName: node.id,
                 hostName: isLocal ? (process.env.COMPUTERNAME || process.env.HOSTNAME || 'Local') : '-',
-                location: node.host || '-',
+                location: nodeLocation,
                 diskTotal: isLocal && localDiskTotal ? localDiskTotal : '-',
                 diskFree: isLocal && localDiskFree ? localDiskFree : '-',
                 diskUsed: '-',
@@ -457,8 +491,9 @@ const server = createServer(async (req, res) => {
         proxyToHost(n1.host, n1.rpcPort, targetPath, req, res);
     } else if (cleanPath.startsWith('/node2-rpc')) {
         const targetPath = fullUrl.replace(/^\/node2-rpc/, '') || '/';
-        const n2 = NODES.find(n => n.id === 'node2') || { host: '192.168.171.43', rpcPort: 27657 };
-        proxyToHost(n2.host, n2.rpcPort, targetPath, req, res);
+        const n2 = NODES.find(n => n.id === 'node2') || { host: NODE2_HOST, rpcPort: 27657 };
+        const host = (n2.host === '127.0.0.1' || n2.host === 'localhost' || n2.host === 'node2') ? NODE2_HOST : n2.host;
+        proxyToHost(host, n2.rpcPort, targetPath, req, res);
     } else if (cleanPath.startsWith('/node3-rpc')) {
         const targetPath = fullUrl.replace(/^\/node3-rpc/, '') || '/';
         const n3 = NODES.find(n => n.id === 'node3') || { host: '127.0.0.1', rpcPort: 28657 };
@@ -469,8 +504,9 @@ const server = createServer(async (req, res) => {
         proxyToHost(n1.host, n1.apiPort, targetPath, req, res);
     } else if (cleanPath === '/node2' || cleanPath.startsWith('/node2/') || cleanPath.startsWith('/node2-api')) {
         const targetPath = fullUrl.replace(/^\/node2(-api)?/, '') || '/';
-        const n2 = NODES.find(n => n.id === 'node2') || { host: '192.168.171.43', apiPort: 2001 };
-        proxyToHost(n2.host, n2.apiPort, targetPath, req, res);
+        const n2 = NODES.find(n => n.id === 'node2') || { host: NODE2_HOST, apiPort: 2001 };
+        const host = (n2.host === '127.0.0.1' || n2.host === 'localhost' || n2.host === 'node2') ? NODE2_HOST : n2.host;
+        proxyToHost(host, n2.apiPort, targetPath, req, res);
     } else if (cleanPath === '/node3' || cleanPath.startsWith('/node3/') || cleanPath.startsWith('/node3-api')) {
         const targetPath = fullUrl.replace(/^\/node3(-api)?/, '') || '/';
         const n3 = NODES.find(n => n.id === 'node3') || { host: '127.0.0.1', apiPort: 3001 };
@@ -504,5 +540,5 @@ server.listen(PORT, async () => {
 
 // 定期自動向 Master/Agent 同步最新節點清單與 IP 位址（每 15 秒）
 setInterval(() => {
-    syncNodeTargetsFromMaster().catch(() => {});
+    syncNodeTargetsFromMaster().catch(() => { });
 }, 15000);
