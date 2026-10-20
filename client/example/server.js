@@ -3,10 +3,12 @@
 import { createServer, request as httpRequest } from "http";
 import { GetServerAddrOfABCIApp } from "./setup.js";
 import { setServerAddress, GetConnection } from "./conn.js";
+import { SetupClient } from "../src/SetupClient.js";
 import { StreamClient } from "../src/StreamClient.js";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { logger } from "./logger.js";
 
 function getLocalIp() {
     try {
@@ -23,13 +25,28 @@ function getLocalIp() {
 }
 
 
-// ── 節點設定（A 電腦本機 node1, node2, node3；B 電腦 node4）────────────
-const NODE4_HOST = process.env.NODE4_HOST || '192.168.170.102';
+// 自動從 Agent 回報的網卡列表中取得真實區域網 IPv4
+function getRealHostIPv4(node) {
+    const addresses = node.host_info?.ip_addresses || [];
+    for (const entry of addresses) {
+        const parts = entry.split(" | ", 2);
+        if (parts.length === 2) {
+            const ip = parts[1].trim();
+            if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip) && !ip.startsWith('127.') && !ip.startsWith('169.254.')) {
+                return ip;
+            }
+        }
+    }
+    return '';
+}
+
+// ── 節點設定（啟動時預設，後續自動由 Master 註冊與狀態動態更新）────────────
+const NODE4_HOST = process.env.NODE4_HOST || '';
 let NODES = [
     { id: 'node1', host: '127.0.0.1', apiPort: 1001, rpcPort: 26657, token: '' },
     { id: 'node2', host: '127.0.0.1', apiPort: 2001, rpcPort: 27657, token: '' },
     { id: 'node3', host: '127.0.0.1', apiPort: 3001, rpcPort: 28657, token: '' },
-    { id: 'node4', host: NODE4_HOST, apiPort: 4001, rpcPort: 29657, token: '' }
+    { id: 'node4', host: NODE4_HOST || '127.0.0.1', apiPort: 4001, rpcPort: 29657, token: '' }
 ];
 
 let lastSyncTime = 0;
@@ -40,9 +57,21 @@ async function syncNodeTargetsFromMaster(force = false) {
         return;
     }
     try {
+        const conn = await GetConnection();
+        let chainState = null;
+        if (conn) {
+            try {
+                const setupClient = new SetupClient(conn);
+                chainState = await setupClient.MakeChainState();
+            } catch (e) { }
+        }
+        const allChainNodes = chainState ? chainState.AllNodes() : [];
+
         const servers = await GetServerAddrOfABCIApp();
         if (servers && servers.success && Array.isArray(servers.data) && servers.data.length > 0) {
             const syncedNodes = [];
+            const localIp = getLocalIp();
+
             servers.data.forEach((item, idx) => {
                 if (!item || !item.server) return;
                 // item.server 格式: "192.168.171.43:2001" 或 "127.0.0.1:1001"
@@ -60,9 +89,18 @@ async function syncNodeTargetsFromMaster(force = false) {
                 const nodeId = `node${nodeIndex + 1}`;
                 const rpcPort = 26657 + nodeIndex * 1000;
 
-                // 跨電腦部署校正：node4 運行於 B 電腦，若被回報為本機回環則校正為真實 IP
-                if (nodeId === 'node4' && (host === '127.0.0.1' || host === 'localhost' || host === 'node4')) {
-                    host = NODE4_HOST;
+                // 若回報為本機回環或節點名，自動比對在線 Agent 的實體 IP
+                if (host === '127.0.0.1' || host === 'localhost' || host === nodeId) {
+                    const matchedChainNode = allChainNodes.find(n => n.node_info?.node_name === nodeId || n.node_info?.node_id === item.node_id);
+                    if (matchedChainNode) {
+                        const detectedIp = getRealHostIPv4(matchedChainNode);
+                        if (detectedIp && detectedIp !== localIp) {
+                            host = detectedIp;
+                        }
+                    }
+                    if (nodeId === 'node4' && NODE4_HOST) {
+                        host = NODE4_HOST;
+                    }
                 }
 
                 syncedNodes.push({
@@ -75,6 +113,11 @@ async function syncNodeTargetsFromMaster(force = false) {
             });
 
             if (syncedNodes.length > 0) {
+                const prevDesc = NODES.map(n => `${n.id}=${n.host}:${n.apiPort}`).join(', ');
+                const newDesc = syncedNodes.map(n => `${n.id}=${n.host}:${n.apiPort}`).join(', ');
+                if (prevDesc !== newDesc) {
+                    logger.info(`[NodeSync] 節點目標已更新: ${newDesc}`);
+                }
                 NODES = syncedNodes;
             }
             lastSyncTime = now;
@@ -204,7 +247,12 @@ async function getTokenPortMap() {
 function fetchNodeRpcStatus(rpcPort, host = '127.0.0.1') {
     let targetHost = host;
     if (rpcPort === 29657 && (targetHost === '127.0.0.1' || targetHost === 'localhost' || targetHost === 'node4')) {
-        targetHost = NODE4_HOST;
+        const n4 = NODES.find(n => n.id === 'node4');
+        if (n4 && n4.host && n4.host !== '127.0.0.1' && n4.host !== 'localhost') {
+            targetHost = n4.host;
+        } else if (NODE4_HOST) {
+            targetHost = NODE4_HOST;
+        }
     }
     return new Promise((resolve) => {
         const req = httpRequest(
@@ -375,7 +423,7 @@ async function proxyDid(req, res, urlPath) {
             }
         }
     }
-    console.log(`[/did/] token-based → ${targetNode.id} (${targetNode.host}:${targetNode.apiPort})`);
+    logger.info(`[/did/] token-based → ${targetNode.id} (${targetNode.host}:${targetNode.apiPort})`);
 
     proxyToHost(targetNode.host, targetNode.apiPort, cleanPath, req, res);
 }
@@ -404,7 +452,7 @@ function proxyToHost(targetHost, targetPort, targetPath, req, res) {
     });
 
     proxyReq.on('error', (err) => {
-        console.error(`[Server Proxy Error] ${req.method} ${req.url} -> ${host}:${targetPort}${targetPath} failed:`, err.message);
+        logger.error(`[Server Proxy Error] ${req.method} ${req.url} -> ${host}:${targetPort}${targetPath} failed: ${err.message}`);
         res.statusCode = 502;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Access-Control-Allow-Origin', '*');
@@ -539,18 +587,16 @@ const server = createServer(async (req, res) => {
         proxyToHost(n1.host, n1.rpcPort, targetPath, req, res);
     } else if (cleanPath.startsWith('/node2-rpc')) {
         const targetPath = fullUrl.replace(/^\/node2-rpc/, '') || '/';
-        const n2 = NODES.find(n => n.id === 'node2') || { host: NODE2_HOST, rpcPort: 27657 };
-        const host = (n2.host === '127.0.0.1' || n2.host === 'localhost' || n2.host === 'node2') ? NODE2_HOST : n2.host;
-        proxyToHost(host, n2.rpcPort, targetPath, req, res);
+        const n2 = NODES.find(n => n.id === 'node2') || { host: '127.0.0.1', rpcPort: 27657 };
+        proxyToHost(n2.host, n2.rpcPort, targetPath, req, res);
     } else if (cleanPath.startsWith('/node3-rpc')) {
         const targetPath = fullUrl.replace(/^\/node3-rpc/, '') || '/';
         const n3 = NODES.find(n => n.id === 'node3') || { host: '127.0.0.1', rpcPort: 28657 };
         proxyToHost(n3.host, n3.rpcPort, targetPath, req, res);
     } else if (cleanPath.startsWith('/node4-rpc')) {
         const targetPath = fullUrl.replace(/^\/node4-rpc/, '') || '/';
-        const n4 = NODES.find(n => n.id === 'node4') || { host: NODE4_HOST, rpcPort: 29657 };
-        const host = (n4.host === '127.0.0.1' || n4.host === 'localhost' || n4.host === 'node4') ? NODE4_HOST : n4.host;
-        proxyToHost(host, n4.rpcPort, targetPath, req, res);
+        const n4 = NODES.find(n => n.id === 'node4') || { host: NODE4_HOST || '127.0.0.1', rpcPort: 29657 };
+        proxyToHost(n4.host, n4.rpcPort, targetPath, req, res);
     } else if (cleanPath === '/node1' || cleanPath.startsWith('/node1/') || cleanPath.startsWith('/node1-api')) {
         const targetPath = fullUrl.replace(/^\/node1(-api)?/, '') || '/';
         const n1 = NODES.find(n => n.id === 'node1') || { host: '127.0.0.1', apiPort: 1001 };
@@ -565,9 +611,8 @@ const server = createServer(async (req, res) => {
         proxyToHost(n3.host, n3.apiPort, targetPath, req, res);
     } else if (cleanPath === '/node4' || cleanPath.startsWith('/node4/') || cleanPath.startsWith('/node4-api')) {
         const targetPath = fullUrl.replace(/^\/node4(-api)?/, '') || '/';
-        const n4 = NODES.find(n => n.id === 'node4') || { host: NODE4_HOST, apiPort: 4001 };
-        const host = (n4.host === '127.0.0.1' || n4.host === 'localhost' || n4.host === 'node4') ? NODE4_HOST : n4.host;
-        proxyToHost(host, n4.apiPort, targetPath, req, res);
+        const n4 = NODES.find(n => n.id === 'node4') || { host: NODE4_HOST || '127.0.0.1', apiPort: 4001 };
+        proxyToHost(n4.host, n4.apiPort, targetPath, req, res);
     } else if (cleanPath.startsWith('/status')) {
         const n1 = NODES.find(n => n.id === 'node1') || { host: '127.0.0.1', rpcPort: 26657 };
         proxyToHost(n1.host, n1.rpcPort, fullUrl, req, res);
@@ -576,6 +621,7 @@ const server = createServer(async (req, res) => {
     } else if (cleanPath.startsWith('/did/')) {
         await proxyDid(req, res, fullUrl);
     } else {
+        logger.warn(`[404 Not Found] ${req.method} ${cleanPath}`);
         res.statusCode = 404;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.end(JSON.stringify({ error: 'Not Found' }));
@@ -588,9 +634,10 @@ setServerAddress(nodeMasterWs);
 
 const PORT = parseInt(process.env.PORT, 10) || 3166;
 server.listen(PORT, async () => {
-    console.log(`✅ HTTP server on http://localhost:${PORT}`);
-    console.log(`👉 NodeMaster WebSocket target: ${nodeMasterWs}`);
-    console.log(`👉 Query http://localhost:${PORT}/api/appservers to fetch webservice addresses of node app`);
+    logger.info(`✅ HTTP server on http://localhost:${PORT}`);
+    logger.info(`👉 NodeMaster WebSocket target: ${nodeMasterWs}`);
+    logger.info(`👉 Query http://localhost:${PORT}/api/appservers to fetch webservice addresses of node app`);
+    logger.info(`📁 日誌儲存目錄: ${logger.logDir}`);
     initStorageStream();
     await syncNodeTargetsFromMaster(true);
 });
@@ -599,3 +646,11 @@ server.listen(PORT, async () => {
 setInterval(() => {
     syncNodeTargetsFromMaster().catch(() => { });
 }, 15000);
+
+// 全域未攔截錯誤監聽，防止服務默默閃退
+process.on('uncaughtException', (err) => {
+    logger.error('[Uncaught Exception]', err);
+});
+process.on('unhandledRejection', (reason) => {
+    logger.error('[Unhandled Rejection]', reason);
+});

@@ -233,7 +233,7 @@ export async function AddChainNodeOnMultiMachine(...nodeNames) {
                 // get private ip address of computer that represents current node
                 // node_domain_or_ip: chainState.FindHostIpByNodeID(node.node_info.node_id, '192.168.1'),
 
-                node_domain_or_ip: chainState.FindHostIpByNodeID(node.node_info.node_id, '192.168.') || node.node_info.node_name,
+                node_domain_or_ip: chainState.FindHostIpByNodeID(node.node_info.node_id) || node.node_info.node_name,
 
                 // 'node2.com' need to be a resolvable domain.
                 //node_domain_or_ip: 'node2.com',

@@ -3,9 +3,10 @@ import { PurgeChain } from "./setup.js";
 import { setServerAddress } from "./conn.js";
 
 async function main() {
-    // 設定連線到 VM Master 的位址
-    setServerAddress('192.168.171.194:8080/websocket');
-    console.log("🧹 Connecting and purging chain on Master...");
+    // 設定連線到 NodeMaster 的位址（支援 CLI 傳參或環境變數，預設 localhost）
+    const masterHost = process.argv[2] || process.env.MASTER_HOST || 'localhost:8080/websocket';
+    setServerAddress(masterHost);
+    console.log(`🧹 Connecting to Master at ${masterHost} and purging chain...`);
 
     const res = await PurgeChain();
     if (res.success) {

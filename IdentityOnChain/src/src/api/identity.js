@@ -122,17 +122,8 @@ export async function fetchServers() {
         nodeServer = 'node3';
       } else if (nodeServer.includes(':4001') || nodeServer === 'node4' || nodeServer === '/node4' || nodeServer === '/node4-api') {
         nodeServer = 'node4';
-      } else if (nodeServer.includes('127.0.0.1') || nodeServer.includes('localhost')) {
-        const isLocalNodePort = nodeServer.includes(':5001');
-        if (isLocalNodePort) {
-          try {
-            const url = new URL(nodeServer);
-            url.hostname = '192.168.171.43';
-            nodeServer = url.toString().replace(/\/$/, "");
-          } catch (e) {
-            nodeServer = nodeServer.replace('127.0.0.1', '192.168.171.43').replace('localhost', '192.168.171.43');
-          }
-        }
+      } else if (nodeServer.includes(':5001') || nodeServer === 'node5' || nodeServer === '/node5' || nodeServer === '/node5-api') {
+        nodeServer = 'node5';
       }
       return typeof item === 'string' ? { server: nodeServer } : { ...item, server: nodeServer };
     });
@@ -773,13 +764,12 @@ export async function fetchRealNodeStatus(serverUrl) {
     try {
       const url = new URL(serverUrl);
       const port = parseInt(url.port, 10);
-      let rpcPort = 26657;
       if (port >= 1001) {
         const nodeIndex = Math.round((port - 1001) / 1000);
-        rpcPort = 26657 + nodeIndex * 1000;
+        rpcUrl = `/node${nodeIndex + 1}-rpc/status`;
+      } else {
+        rpcUrl = `${serverUrl}/status`;
       }
-      const targetHostname = url.hostname === '192.168.171.43' ? '127.0.0.1' : url.hostname;
-      rpcUrl = `http://${targetHostname}:${rpcPort}/status`;
     } catch (e) {
       rpcUrl = `${serverUrl}/status`;
     }

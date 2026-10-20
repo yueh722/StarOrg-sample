@@ -33,28 +33,20 @@ function enableCorsInConfig(nodeId, nodeName) {
                 console.log(`  - 已自動為本機節點 ${nodeName} 啟用 CORS (config.toml)`);
             }
 
-            // 2. 將 persistent_peers 中屬於 VM 節點的 127.0.0.1 替換為 VM 的實體 IP
-            if (content.includes('@127.0.0.1:26656') || content.includes('@127.0.0.1:27656') || content.includes('@127.0.0.1:28656')) {
-                content = content.replace(/@127\.0\.0\.1:26656/g, '@192.168.171.194:26656')
-                    .replace(/@127\.0\.0\.1:27656/g, '@192.168.171.194:27656')
-                    .replace(/@127\.0\.0\.1:28656/g, '@192.168.171.194:28656');
-                modified = true;
-                console.log(`  - 已自動將 ${nodeName} 的 VM 節點 P2P 連線位址更正為 192.168.171.194`);
-            }
-
             if (modified) {
                 fs.writeFileSync(configPath, content, 'utf8');
             }
         }
     } catch (e) {
-        console.warn(`  - 啟用/更正本機節點 ${nodeName} 設定失敗 (可能尚未建立 config):`, e.message);
+        console.warn(`  - 啟用本機節點 ${nodeName} CORS 失敗 (可能尚未建立 config):`, e.message);
     }
 }
 
 async function main() {
-    // 1. 設定要連接的 NodeMaster 地址（VM 的 IP）
-    setServerAddress('192.168.171.194:8080/websocket');
-    console.log("Connecting to VM Master at 192.168.171.194:8080/websocket...");
+    // 1. 設定要連接的 NodeMaster 地址（預設本機，支援 CLI 傳參或環境變數覆蓋）
+    const masterHost = process.argv[2] || process.env.MASTER_HOST || 'localhost:8080/websocket';
+    setServerAddress(masterHost);
+    console.log(`Connecting to Master at ${masterHost}...`);
 
     const setupClient = await new SetupClient(await GetConnection());
     let chainState = await setupClient.MakeChainState();
@@ -145,7 +137,7 @@ async function main() {
             const nodeNum = match ? parseInt(match[0], 10) : 1;
             const nodeIndex = nodeNum - 1; // node1 -> 0, node4 -> 3, node5 -> 4
 
-            const nodeDomainOrIp = chainState.FindHostIpByNodeID(node.node_info.node_id, '192.168.') || node.node_info.node_name;
+            const nodeDomainOrIp = chainState.FindHostIpByNodeID(node.node_info.node_id) || node.node_info.node_name;
 
             const argNode = {
                 node_name: nodeName,

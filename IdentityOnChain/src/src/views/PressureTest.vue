@@ -371,13 +371,12 @@ export default {
             try {
               const url = new URL(serverUrl);
               const port = parseInt(url.port, 10);
-              let rpcPort = 26657;
               if (port >= 1001) {
                 const nodeIndex = Math.round((port - 1001) / 1000);
-                rpcPort = 26657 + nodeIndex * 1000;
+                rpcUrl = `/node${nodeIndex + 1}-rpc/status`;
+              } else {
+                rpcUrl = `${serverUrl}/status`;
               }
-              const targetHostname = url.hostname === '192.168.171.43' ? '127.0.0.1' : url.hostname;
-              rpcUrl = `http://${targetHostname}:${rpcPort}/status`;
             } catch (e) {
               rpcUrl = `${serverUrl}/status`;
             }
@@ -573,13 +572,12 @@ export default {
         try {
           const url = new URL(server);
           const port = parseInt(url.port, 10);
-          let rpcPort = 26657;
           if (port >= 1001) {
             const nodeIndex = Math.round((port - 1001) / 1000);
-            rpcPort = 26657 + nodeIndex * 1000;
+            rpcUrl = `/node${nodeIndex + 1}-rpc/status`;
+          } else {
+            rpcUrl = `${server}/status`;
           }
-          const targetHostname = url.hostname === '192.168.171.43' ? '127.0.0.1' : url.hostname;
-          rpcUrl = `http://${targetHostname}:${rpcPort}/status`;
         } catch (e) {
           rpcUrl = `${server}/status`;
         }

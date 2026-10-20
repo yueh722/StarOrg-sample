@@ -62,7 +62,7 @@ export class ChainState {
             })
     }
 
-    FindHostIpByNodeID(nodeID, prefix) {
+    FindHostIpByNodeID(nodeID, prefix = '') {
         try {
             const node = (this.rawData.nodes || []).find(node => node?.node_info?.node_id === nodeID);
             const addresses =  node ? node.host_info?.ip_addresses || [] : null;
@@ -111,20 +111,25 @@ export function NodesToNodeIDs(nodes) {
 }
 
 function findIPByPrefix(addresses, prefix) {
+    if (!addresses || !Array.isArray(addresses)) return '';
     for (const entry of addresses) {
         // Split by " | " to separate adapter name and IP
-        // Note: some adapter names may contain colons (e.g., on Windows),
-        // but gopsutil typically uses simple names like "eth0", "en0", etc.
-        // We split at the first " | " delimiter
         const parts = entry.split(" | ", 2);
         if (parts.length !== 2) {
             continue; // skip malformed entries
         }
-        const ipStr = parts[1];
+        const ipStr = parts[1].trim();
 
-        // Check if IP starts with the given prefix
-        if (ipStr.startsWith(prefix)) {
-            return ipStr;
+        if (prefix) {
+            // Check if IP starts with the given prefix
+            if (ipStr.startsWith(prefix)) {
+                return ipStr;
+            }
+        } else {
+            // 自動尋找有效區域網 IPv4 (排除 127.x, 169.254.x, IPv6)
+            if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ipStr) && !ipStr.startsWith('127.') && !ipStr.startsWith('169.254.')) {
+                return ipStr;
+            }
         }
     }
     return '';
