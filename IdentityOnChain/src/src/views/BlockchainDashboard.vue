@@ -98,6 +98,10 @@
         </div>
         <div class="card-body">
           <div class="storage-summary">
+            <div class="storage-item" v-if="storageData.hostName">
+              <span class="storage-label">系統主機名稱 (Hostname)</span>
+              <span class="storage-value font-mono highlight">{{ storageData.hostName }}</span>
+            </div>
             <div class="storage-item">
               <span class="storage-label">區塊鏈帳本資料庫空間 (data)</span>
               <span class="storage-value font-mono">{{ storageData.data }}</span>
@@ -105,7 +109,7 @@
             <div class="storage-item">
               <span class="storage-label">鏈節點系統總佔用空間 (chainnode)</span>
               <span class="storage-value font-mono">{{ storageData.chainnode }}</span>
-          </div>
+            </div>
           </div>
 
           <!-- 容量佔用視覺化圖表 -->
@@ -338,6 +342,7 @@ export default {
 
       // 2. 硬碟儲存空間
       storageData: {
+        hostName: '',
         chainnode: '0 MB',
         data: '0 MB',
         totalMB: 0,
@@ -563,6 +568,7 @@ export default {
           const nodeData = res.nodes.find(n => n.nodeId === targetName || n.nodeName === targetName) || res.nodes[0];
 
           if (nodeData) {
+            this.storageData.hostName = nodeData.hostName || '';
             this.storageData.chainnode = nodeData.totalChainnodeSize || 'N/A';
             this.storageData.data = nodeData.chainDataSize || 'N/A';
             this.storageData.diskTotal = nodeData.diskTotal || '';

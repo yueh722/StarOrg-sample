@@ -1,0 +1,51 @@
+services:
+  docker1:
+    build: .
+    image: chainnode-runner:latest
+    container_name: docker1
+    hostname: pc1A1
+    privileged: true
+    environment:
+      - NODE_NAME=node1
+      - DISK_QUOTA_GB=150
+      - MASTER_ADDR=ws://host.docker.internal:8080/websocket
+    ports:
+      - "26656:26656"
+      - "26657:26657"
+      - "1001:1001"
+    volumes:
+      - data_node1:/chainnode_store
+      - ./entrypoint.sh:/chainnode/entrypoint.sh:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  docker2:
+    build: .
+    image: chainnode-runner:latest
+    container_name: docker2
+    hostname: pc1A2
+    privileged: true
+    environment:
+      - NODE_NAME=node2,node3
+      - DISK_QUOTA_GB=200
+      - MASTER_ADDR=ws://host.docker.internal:8080/websocket
+    ports:
+      # node2
+      - "27656:27656"
+      - "27657:27657"
+      - "2001:2001"
+      # node3
+      - "28656:28656"
+      - "28657:28657"
+      - "3001:3001"
+    volumes:
+      - data_node2:/chainnode_store
+      - ./entrypoint.sh:/chainnode/entrypoint.sh:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  data_node1:
+  data_node2:

@@ -92,6 +92,8 @@ export class ChainState {
                 return {
                     "server": updateListenAddressHost(listen_addr, node.node_info?.node_address),
                     "token": node.node_info?.token,
+                    "host_name": node.host_info?.host_name || '',
+                    "node_name": node.node_info?.node_name || ''
                 }
             }
         );

@@ -410,6 +410,9 @@ export default {
           const selectedNodeName = formatNodeName(this.selectedServer);
           const targetNode = data.nodes.find(n => n.nodeId === selectedNodeName || n.nodeName === selectedNodeName) || data.nodes[0];
           if (targetNode) {
+            if (targetNode.hostName && targetNode.hostName !== '-') {
+              reportStr += `系統主機名稱 (Hostname): ${targetNode.hostName}\n`;
+            }
             reportStr += `區塊鏈帳本資料庫空間 (C:\\ProgramData\\chainnode\\data): ${targetNode.chainDataSize || 'N/A'}\n`;
             reportStr += `鏈節點系統總佔用空間 [包含上述帳本及日誌/配置/執行檔] (C:\\ProgramData\\chainnode): ${targetNode.totalChainnodeSize || 'N/A'}\n`;
             if (targetNode.diskTotal && targetNode.diskFree) {
@@ -585,7 +588,7 @@ export default {
 
       try {
         const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-        const tid = controller ? setTimeout(() => controller.abort(), 3500) : null;
+        const tid = controller ? setTimeout(() => controller.abort(), 5000) : null;
         const response = await fetch(rpcUrl, { signal: controller ? controller.signal : undefined });
         if (tid) clearTimeout(tid);
         if (!response.ok) throw new Error(`HTTP 錯誤! 狀態碼: ${response.status}`);
@@ -619,7 +622,7 @@ export default {
         for (const ep of endpoints) {
           try {
             const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-            const tid = controller ? setTimeout(() => controller.abort(), 2500) : null;
+            const tid = controller ? setTimeout(() => controller.abort(), 5000) : null;
             const res = await fetch(ep, {
               headers: { 'ngrok-skip-browser-warning': 'true' },
               signal: controller ? controller.signal : undefined
@@ -686,14 +689,19 @@ export default {
           this.log += `[${new Date().toLocaleTimeString()}] 查詢硬碟與儲存空間成功 (全節點共 ${data.nodes.length} 個)：\n`;
           data.nodes.forEach(node => {
             const nodeName = node.nodeName || node.nodeId || '未知節點';
+            const hostName = node.hostName && node.hostName !== '-' ? node.hostName : '';
             const diskTotal = node.diskTotal || '-';
             const diskFree = node.diskFree || '-';
             const chainnode = node.totalChainnodeSize || '-';
             const chainData = node.chainDataSize || '-';
             const loc = node.location && node.location !== '-' ? ` (${node.location})` : '';
+            const hostTag = hostName ? ` (主機: ${hostName})` : '';
 
             this.log += `--------------------------------------------------\n`;
-            this.log += `【節點: ${nodeName}${loc}】\n`;
+            this.log += `【節點: ${nodeName}${hostTag}${loc}】\n`;
+            if (hostName) {
+              this.log += `  - 系統主機名稱 (Hostname): ${hostName}\n`;
+            }
             this.log += `  - 區塊鏈帳本資料庫空間 (data): ${chainData}\n`;
             this.log += `  - 鏈節點系統總佔用空間 (chainnode): ${chainnode}\n`;
             if (diskTotal !== '-' || diskFree !== '-') {

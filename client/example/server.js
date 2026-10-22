@@ -40,14 +40,47 @@ function getRealHostIPv4(node) {
     return '';
 }
 
-// ── 節點設定（啟動時預設，後續自動由 Master 註冊與狀態動態更新）────────────
-const NODE4_HOST = process.env.NODE4_HOST || '';
-let NODES = [
-    { id: 'node1', host: '127.0.0.1', apiPort: 1001, rpcPort: 26657, token: '' },
-    { id: 'node2', host: '127.0.0.1', apiPort: 2001, rpcPort: 27657, token: '' },
-    { id: 'node3', host: '127.0.0.1', apiPort: 3001, rpcPort: 28657, token: '' },
-    { id: 'node4', host: NODE4_HOST || '127.0.0.1', apiPort: 4001, rpcPort: 29657, token: '' }
-];
+// 判斷是否為 Docker 內部虛擬網橋網段 (172.17.0.0/16 ~ 172.31.255.255)
+function isDockerInternalIp(ip) {
+    if (!ip) return false;
+    return /^172\.(1[7-9]|2[0-9]|3[0-1])\./.test(ip);
+}
+
+
+// ── 節點設定（全動態化機制，支援 node1 ~ nodeN 任意數量擴充）────────────
+const localHostName = os.hostname() || process.env.COMPUTERNAME || process.env.HOSTNAME || 'localhost';
+
+// 動態推導節點預設連線資訊（Port 泛用公式：apiPort = 1001 + (N-1)*1000, rpcPort = 26657 + (N-1)*1000）
+function createDefaultNodeConfig(nodeIdOrNum, customHost = '', customHostName = '') {
+    const num = typeof nodeIdOrNum === 'number' 
+        ? nodeIdOrNum 
+        : (parseInt(String(nodeIdOrNum).replace(/\D/g, ''), 10) || 1);
+    const id = `node${num}`;
+    const envHost = process.env[`NODE${num}_HOST`] || (num === 4 ? (process.env.NODE4_HOST || '') : '');
+    const finalHost = customHost || envHost || '127.0.0.1';
+    return {
+        id,
+        host: finalHost,
+        hostName: customHostName || (finalHost !== '127.0.0.1' && finalHost !== 'localhost' ? finalHost : localHostName),
+        apiPort: 1001 + (num - 1) * 1000,
+        rpcPort: 26657 + (num - 1) * 1000,
+        token: ''
+    };
+}
+
+// 動態獲取指定節點配置（若 Master 已同步則優先使用真實數據，否則自動推導，絕不丟失）
+function getNodeConfig(nodeIdOrNum) {
+    const num = typeof nodeIdOrNum === 'number' 
+        ? nodeIdOrNum 
+        : (parseInt(String(nodeIdOrNum).replace(/\D/g, ''), 10) || 1);
+    const id = `node${num}`;
+    const found = NODES.find(n => n.id === id);
+    if (found) return found;
+    return createDefaultNodeConfig(num);
+}
+
+// 預設節點清單（在 Master 尚未連線時的基本兜底，Master 連線後自動全量替換）
+let NODES = [1, 2, 3].map(i => createDefaultNodeConfig(i));
 
 let lastSyncTime = 0;
 // 從 Master 取得最新在線 ABCI App 節點清單，動態更新與對齊真實節點清單、Host 與 Port
@@ -82,30 +115,54 @@ async function syncNodeTargetsFromMaster(force = false) {
                 const port = parseInt(cleanAddr.slice(colonIdx + 1), 10);
                 if (!port) return;
 
+                // 若為 Docker 內部虛擬網段 IP，Windows 宿主機必須透過 127.0.0.1 連線映射端口
+                if (isDockerInternalIp(host)) {
+                    host = '127.0.0.1';
+                }
+
                 let nodeIndex = idx;
                 if (port >= 1001) {
                     nodeIndex = Math.round((port - 1001) / 1000);
                 }
-                const nodeId = `node${nodeIndex + 1}`;
+                const nodeId = item.node_name || `node${nodeIndex + 1}`;
                 const rpcPort = 26657 + nodeIndex * 1000;
+
+                // 比對在線 Agent 的節點資訊 (比對 node_name 或 node_id)
+                const matchedChainNode = allChainNodes.find(n => 
+                    (n.node_info?.node_name && n.node_info?.node_name.toLowerCase() === nodeId.toLowerCase()) ||
+                    (item.node_name && n.node_info?.node_name.toLowerCase() === item.node_name.toLowerCase()) ||
+                    (item.node_id && n.node_info?.node_id === item.node_id)
+                );
+
+                // 完全動態自在線 Agent / Master 取得真實主機名稱，無需任何寫死
+                let detectedHostName = item.host_name || 
+                                       matchedChainNode?.host_info?.host_name || 
+                                       nodeStorageCache[nodeId]?.host_name || 
+                                       '';
 
                 // 若回報為本機回環或節點名，自動比對在線 Agent 的實體 IP
                 if (host === '127.0.0.1' || host === 'localhost' || host === nodeId) {
-                    const matchedChainNode = allChainNodes.find(n => n.node_info?.node_name === nodeId || n.node_info?.node_id === item.node_id);
                     if (matchedChainNode) {
                         const detectedIp = getRealHostIPv4(matchedChainNode);
-                        if (detectedIp && detectedIp !== localIp) {
+                        if (detectedIp && detectedIp !== localIp && !isDockerInternalIp(detectedIp)) {
                             host = detectedIp;
                         }
                     }
-                    if (nodeId === 'node4' && NODE4_HOST) {
-                        host = NODE4_HOST;
+                    const envHost = process.env[`NODE${nodeIndex + 1}_HOST`] || (nodeId === 'node4' ? (process.env.NODE4_HOST || '') : '');
+                    if (envHost) {
+                        host = envHost;
                     }
+                }
+
+                // 泛用動態 fallback：若無特定主機名稱，本機則為 localHostName，遠端則帶 host IP
+                if (!detectedHostName) {
+                    detectedHostName = (host === '127.0.0.1' || host === 'localhost' || host === localIp) ? localHostName : host;
                 }
 
                 syncedNodes.push({
                     id: nodeId,
                     host: host,
+                    hostName: detectedHostName,
                     apiPort: port,
                     rpcPort: rpcPort,
                     token: item.token || ''
@@ -128,6 +185,7 @@ async function syncNodeTargetsFromMaster(force = false) {
 }
 
 // 各節點主機儲存空間與鏈資料快取（由 Agent 定時回報至 Master，再傳入 server.js）
+// 快取鍵規範：改以 `${hostName}_${nodeName}` 為主要鍵，同時保留 node_id 避免跨主機同名 node 互相覆蓋
 const nodeStorageCache = {};
 let streamClientInstance = null;
 
@@ -140,8 +198,18 @@ async function initStorageStream() {
             streamClientInstance = new StreamClient(conn, {
                 onStorage: (storage) => {
                     if (storage) {
-                        if (storage.node_id) nodeStorageCache[storage.node_id] = storage;
-                        if (storage.node_name) nodeStorageCache[storage.node_name] = storage;
+                        const h = storage.host_name || '';
+                        const n = storage.node_name || '';
+                        // 以 hostName + "_" + nodeName 作為主要複合 key，避免跨機資料覆蓋
+                        if (h && n) {
+                            nodeStorageCache[`${h}_${n}`] = storage;
+                        }
+                        if (storage.node_id) {
+                            nodeStorageCache[storage.node_id] = storage;
+                        }
+                        if (storage.node_name) {
+                            nodeStorageCache[storage.node_name] = storage;
+                        }
                     }
                 }
             });
@@ -159,6 +227,14 @@ async function getStorageFromMaster() {
             const res = await conn.callMethod('status_getStorageStatus');
             if (res && res.success && res.data && typeof res.data === 'object') {
                 for (const [k, v] of Object.entries(res.data)) {
+                    if (v) {
+                        const h = v.host_name || '';
+                        const n = v.node_name || '';
+                        // 以 hostName + "_" + nodeName 作為主要複合 key
+                        if (h && n) {
+                            nodeStorageCache[`${h}_${n}`] = v;
+                        }
+                    }
                     nodeStorageCache[k] = v;
                 }
             }
@@ -193,18 +269,24 @@ async function fetchServers() {
     //在浏览器中调用GetServerAddrOfABCIApp会出错，所以用server转发一下。
     const servers = await GetServerAddrOfABCIApp();
     if (servers.success && Array.isArray(servers.data)) {
+        const localHost = os.hostname() || process.env.COMPUTERNAME || process.env.HOSTNAME || 'localhost';
         servers.data = servers.data.map((item, idx) => {
             const cleanAddr = String(item.server).replace(/^https?:\/\//, '');
             const colonIdx = cleanAddr.lastIndexOf(':');
             const port = colonIdx !== -1 ? parseInt(cleanAddr.slice(colonIdx + 1), 10) : 0;
 
             let nodeProxyPath = `node${idx + 1}`;
-            if (port === 1001) { nodeProxyPath = 'node1'; }
-            else if (port === 2001) { nodeProxyPath = 'node2'; }
-            else if (port === 3001) { nodeProxyPath = 'node3'; }
+            if (port >= 1001) {
+                const nodeNum = Math.round((port - 1001) / 1000) + 1;
+                nodeProxyPath = `node${nodeNum}`;
+            }
+
+            const matchedNode = NODES.find(n => n.apiPort === port || n.id === nodeProxyPath);
+            const hostName = item.host_name || matchedNode?.hostName || localHost;
 
             return {
                 "server": nodeProxyPath,
+                "hostName": hostName,
                 "token": item.token,
             };
         });
@@ -246,12 +328,13 @@ async function getTokenPortMap() {
 // 向指定 RPC port 查詢 CometBFT 節點狀態（內部用，不經 proxyToLocal）
 function fetchNodeRpcStatus(rpcPort, host = '127.0.0.1') {
     let targetHost = host;
-    if (rpcPort === 29657 && (targetHost === '127.0.0.1' || targetHost === 'localhost' || targetHost === 'node4')) {
-        const n4 = NODES.find(n => n.id === 'node4');
-        if (n4 && n4.host && n4.host !== '127.0.0.1' && n4.host !== 'localhost') {
-            targetHost = n4.host;
-        } else if (NODE4_HOST) {
-            targetHost = NODE4_HOST;
+    if (isDockerInternalIp(targetHost)) {
+        targetHost = '127.0.0.1';
+    }
+    if (targetHost === '127.0.0.1' || targetHost === 'localhost' || targetHost.startsWith('node')) {
+        const matched = NODES.find(n => n.rpcPort === rpcPort);
+        if (matched && matched.host && matched.host !== '127.0.0.1' && matched.host !== 'localhost') {
+            targetHost = matched.host;
         }
     }
     return new Promise((resolve) => {
@@ -292,6 +375,30 @@ function fetchNodeDumpConsensus(rpcPort = 26657, host = '127.0.0.1') {
     });
 }
 
+// 判定指定節點是否在線（直連 RPC 回應或參與 P2P 共識出塊）
+async function isNodeActive(node, consensusData = null) {
+    if (!node) return false;
+    const host = node.host || '127.0.0.1';
+    const rpc = await fetchNodeRpcStatus(node.rpcPort, host);
+    if (rpc.ok) {
+        return true;
+    }
+    if (consensusData && Array.isArray(consensusData.peers)) {
+        const targetHost = node.host === '127.0.0.1' ? '' : node.host;
+        const matchedPeer = consensusData.peers.find(p => 
+            (targetHost && p.node_address?.includes(targetHost)) ||
+            (p.node_address?.includes(node.id))
+        );
+        if (matchedPeer) {
+            const rHeight = parseInt(matchedPeer.peer_state?.round_state?.height || '0', 10);
+            if (rHeight > 1) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 // GET /nodes/status：並行查全部節點 RPC + 依節點各自所屬主機的硬碟狀態與鏈資料大小
 async function handleNodesStatus(res) {
     await syncNodeTargetsFromMaster();
@@ -313,19 +420,22 @@ async function handleNodesStatus(res) {
     let consensusData = null;
     let node1SyncInfo = null;
     try {
-        const csRpc = await fetchNodeRpcStatus(26657, '127.0.0.1');
+        const firstNode = getNodeConfig(1);
+        const csRpc = await fetchNodeRpcStatus(firstNode.rpcPort, firstNode.host);
         if (csRpc.ok) {
             node1SyncInfo = csRpc.data?.result?.sync_info;
         }
-        consensusData = await fetchNodeDumpConsensus(26657, '127.0.0.1');
+        consensusData = await fetchNodeDumpConsensus(firstNode.rpcPort, firstNode.host);
     } catch (e) { }
 
     const results = await Promise.all(NODES.map(async (node) => {
         const host = node.host || '127.0.0.1';
         const rpc = await fetchNodeRpcStatus(node.rpcPort, host);
 
-        // 查找該節點所屬 Agent 回報的硬碟
-        const nodeStorage = masterStorageMap[node.id] ||
+        // 查找該節點所屬 Agent 回報的硬碟（優先依 hostName + "_" + nodeName 查找，防止同名跨機覆蓋）
+        const hostKey = (node.hostName && node.id) ? `${node.hostName}_${node.id}` : '';
+        const nodeStorage = (hostKey && masterStorageMap[hostKey]) ||
+            masterStorageMap[node.id] ||
             masterStorageMap[node.id.toLowerCase()] ||
             null;
 
@@ -353,10 +463,13 @@ async function handleNodesStatus(res) {
             usedBytes
         };
 
+        const resolvedHostName = node.hostName || nodeStorage?.host_name || localHostName;
+
         if (rpc.ok) {
             const sync = rpc.data?.result?.sync_info || {};
             return {
-                nodeId: node.id,
+                nodeName: node.id,
+                hostName: resolvedHostName,
                 online: true,
                 latestBlockHeight: parseInt(sync.latest_block_height || '0', 10),
                 latestBlockHash: sync.latest_block_hash || null,
@@ -382,14 +495,17 @@ async function handleNodesStatus(res) {
                 }
             }
 
-            const isAgentOnline = !!(nodeStorage && nodeStorage.updated_at) || isConsensusOnline;
+            // 只有在直連 RPC 成功，或共識網路 (P2P) 確認該節點有參與出塊時，節點才算在線 (online)
+            // 不應僅因主機 NodeAgent 曾回報過硬碟磁碟資訊 (nodeStorage.updated_at) 就判定節點在線
+            const isNodeOnline = isConsensusOnline && (peerHeight !== null);
             return {
-                nodeId: node.id,
-                online: isAgentOnline,
-                latestBlockHeight: peerHeight !== null ? peerHeight : (isConsensusOnline && node1SyncInfo ? parseInt(node1SyncInfo.latest_block_height || '0', 10) : null),
-                latestBlockHash: (isConsensusOnline && node1SyncInfo) ? node1SyncInfo.latest_block_hash : null,
-                latestBlockTime: (isConsensusOnline && node1SyncInfo) ? node1SyncInfo.latest_block_time : null,
-                disk: diskInfo
+                nodeName: node.id,
+                hostName: resolvedHostName,
+                online: isNodeOnline,
+                latestBlockHeight: isNodeOnline ? peerHeight : null,
+                latestBlockHash: (isNodeOnline && node1SyncInfo) ? node1SyncInfo.latest_block_hash : null,
+                latestBlockTime: (isNodeOnline && node1SyncInfo) ? node1SyncInfo.latest_block_time : null,
+                disk: isNodeOnline ? diskInfo : { totalBytes: null, usedBytes: null }
             };
         }
     }));
@@ -429,7 +545,10 @@ async function proxyDid(req, res, urlPath) {
 }
 
 function proxyToHost(targetHost, targetPort, targetPath, req, res) {
-    const host = targetHost || '127.0.0.1';
+    let host = targetHost || '127.0.0.1';
+    if (isDockerInternalIp(host)) {
+        host = '127.0.0.1';
+    }
     const options = {
         hostname: host,
         port: targetPort,
@@ -468,42 +587,107 @@ async function handleStorageSize(req, res) {
     // 先向 Master 查詢所有在線節點 Agent 回報的硬碟與鏈資料大小
     const masterStorageMap = await getStorageFromMaster();
 
-    // 整理出非重複節點列表（依 NodeID 或 NodeName 去重）
-    const seenNodes = new Set();
-    const nodesList = [];
+    // 取得本地 node1 的共識狀態，供比對 P2P 出塊狀態
+    let consensusData = null;
+    try {
+        const firstNode = getNodeConfig(1);
+        consensusData = await fetchNodeDumpConsensus(firstNode.rpcPort, firstNode.host);
+    } catch (e) { }
 
+    // 並行檢測 NODES 中各節點的在線狀態
+    const onlineStatusMap = {};
+    await Promise.all(NODES.map(async (n) => {
+        onlineStatusMap[n.id] = await isNodeActive(n, consensusData);
+    }));
+
+    // 1. 整理 MasterStorageMap：以 (hostName + "_" + nodeName) 聚合，只保留該節點最新的一次回報記錄
+    const latestStorageMap = new Map();
     for (const [key, item] of Object.entries(masterStorageMap)) {
-        if (!item) continue;
-        const id = item.node_name || item.node_id || key;
-        if (!seenNodes.has(id) && item.node_id) {
-            seenNodes.add(id);
-            const totalBytes = Number(item.disk_total_bytes) || 0;
-            const freeBytes = Number(item.disk_free_bytes) || 0;
-            const usedBytes = (totalBytes > freeBytes) ? (totalBytes - freeBytes) : 0;
-            const targetId = item.node_name || id;
-            const matchedNode = NODES.find(n => n.id === targetId || n.id === item.node_id);
-            let nodeLocation = matchedNode?.host || '-';
-            if (nodeLocation === '127.0.0.1' || nodeLocation === 'localhost') {
-                nodeLocation = getLocalIp() || '127.0.0.1';
-            }
+        if (!item || !item.node_name) continue;
+        const name = String(item.node_name).trim();
+        // 過濾已廢棄或無效節點名稱 (如 node2,node3)
+        if (name.includes(',') || name.includes('+') || name.includes(' ')) continue;
 
-            nodesList.push({
-                nodeId: item.node_id,
-                nodeName: item.node_name || id,
-                hostName: item.host_name || (process.env.COMPUTERNAME || process.env.HOSTNAME || ''),
-                diskTotal: item.total_space || (totalBytes > 0 ? (totalBytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB' : '-'),
-                diskFree: item.free_space || (freeBytes > 0 ? (freeBytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB' : '-'),
-                diskUsed: item.used_space || (usedBytes > 0 ? (usedBytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB' : '-'),
-                diskUsedPercent: item.used_percent || (totalBytes > 0 ? ((usedBytes / totalBytes) * 100).toFixed(1) + ' %' : '-'),
-                diskTotalBytes: totalBytes,
-                diskFreeBytes: freeBytes,
-                chainDataSize: item.chain_data_size || '',
-                totalChainnodeSize: item.total_chainnode_size || '',
-                dataSizeBytes: Number(item.data_size_bytes) || 0,
-                totalSizeBytes: Number(item.total_size_bytes) || 0,
-                updatedAt: item.updated_at || ''
-            });
+        const host = item.host_name || '';
+        const compositeKey = `${host}_${name}`;
+
+        const existing = latestStorageMap.get(compositeKey);
+        if (!existing) {
+            latestStorageMap.set(compositeKey, item);
+        } else {
+            // 比對更新時間，只保留較新的一筆記錄
+            const existingTime = existing.updated_at ? new Date(existing.updated_at).getTime() : 0;
+            const newTime = item.updated_at ? new Date(item.updated_at).getTime() : 0;
+            if (newTime >= existingTime) {
+                latestStorageMap.set(compositeKey, item);
+            }
         }
+    }
+
+    // 2. 以真實註冊節點清單 NODES 為主幹依序產出，確保節點名稱、主機名與順序皆精準對齊 /nodes/status
+    const nodesList = [];
+    const emittedKeys = new Set();
+
+    for (const node of NODES) {
+        const compositeKey = `${node.hostName}_${node.id}`;
+        emittedKeys.add(compositeKey);
+
+        // 查找該節點的最新儲存記錄
+        const item = latestStorageMap.get(compositeKey) || 
+                     latestStorageMap.get(`_${node.id}`) ||
+                     masterStorageMap[node.id] ||
+                     null;
+
+        const isOnline = onlineStatusMap[node.id] ?? false;
+        const totalBytes = Number(item?.disk_total_bytes) || 0;
+        const freeBytes = Number(item?.disk_free_bytes) || 0;
+        const usedBytes = (totalBytes > freeBytes) ? (totalBytes - freeBytes) : 0;
+
+        nodesList.push({
+            nodeName: node.id,
+            hostName: node.hostName,
+            online: isOnline,
+            diskTotal: isOnline ? (item?.total_space || (totalBytes > 0 ? (totalBytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB' : null)) : null,
+            diskFree: isOnline ? (item?.free_space || (freeBytes > 0 ? (freeBytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB' : null)) : null,
+            diskUsed: isOnline ? (item?.used_space || (usedBytes > 0 ? (usedBytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB' : null)) : null,
+            diskUsedPercent: isOnline ? (item?.used_percent || (totalBytes > 0 ? ((usedBytes / totalBytes) * 100).toFixed(1) + ' %' : null)) : null,
+            diskTotalBytes: isOnline ? totalBytes : null,
+            diskFreeBytes: isOnline ? freeBytes : null,
+            chainDataSize: isOnline ? (item?.chain_data_size || null) : null,
+            totalChainnodeSize: isOnline ? (item?.total_chainnode_size || null) : null,
+            dataSizeBytes: isOnline ? (Number(item?.data_size_bytes) || 0) : null,
+            totalSizeBytes: isOnline ? (Number(item?.total_size_bytes) || 0) : null,
+            updatedAt: isOnline ? (item?.updated_at || null) : null
+        });
+    }
+
+    // 3. 補上外部獨立上線且未在預設 NODES 內的合法節點 (依 hostName + nodeName 唯一輸出)
+    for (const [compositeKey, item] of latestStorageMap.entries()) {
+        if (emittedKeys.has(compositeKey)) continue;
+        emittedKeys.add(compositeKey);
+
+        const name = item.node_name;
+        const host = item.host_name || '';
+        const totalBytes = Number(item.disk_total_bytes) || 0;
+        const freeBytes = Number(item.disk_free_bytes) || 0;
+        const usedBytes = (totalBytes > freeBytes) ? (totalBytes - freeBytes) : 0;
+
+        nodesList.push({
+            nodeName: name,
+            hostName: host,
+            online: true,
+            diskTotal: item.total_space || (totalBytes > 0 ? (totalBytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB' : null),
+            diskFree: item.free_space || (freeBytes > 0 ? (freeBytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB' : null),
+            diskUsed: item.used_space || (usedBytes > 0 ? (usedBytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB' : null),
+            diskUsedPercent: item.used_percent || (totalBytes > 0 ? ((usedBytes / totalBytes) * 100).toFixed(1) + ' %' : null),
+            diskTotalBytes: totalBytes,
+            diskFreeBytes: freeBytes,
+            chainDataSize: item.chain_data_size || null,
+            totalChainnodeSize: item.total_chainnode_size || null,
+            dataSizeBytes: Number(item.data_size_bytes) || 0,
+            totalSizeBytes: Number(item.total_size_bytes) || 0,
+            updatedAt: item.updated_at || null
+        });
     }
 
     // 本機 fallback 統計（在單機或未連 Master 時使用）
@@ -525,29 +709,29 @@ async function handleStorageSize(req, res) {
         }
     } catch (e) { }
 
-    // 當 Master 尚未廣播各 Agent 儲存時，依已知節點清單建立預設節點狀態（無 Agent 回報時明確標示 '-'，不捏造虛擬數值）
+    // 當 Master 尚未廣播各 Agent 儲存時，依已知節點清單建立預設節點狀態（無 Agent 回報或離線時明確以 null 標記，不捏造虛擬數值）
     if (nodesList.length === 0) {
         for (const node of NODES) {
+            const isOnline = onlineStatusMap[node.id] ?? false;
             const isLocal = node.host === '127.0.0.1' || node.host === 'localhost';
-            const nodeChainnodeSize = isLocal ? getDirSize(chainnodePath) : 0;
-            const nodeDataSize = isLocal ? getDirSize(dataPath) : 0;
-            const nodeLocation = isLocal ? (getLocalIp() || '127.0.0.1') : (node.host || '-');
+            const nodeChainnodeSize = (isOnline && isLocal) ? getDirSize(chainnodePath) : 0;
+            const nodeDataSize = (isOnline && isLocal) ? getDirSize(dataPath) : 0;
 
             nodesList.push({
-                nodeId: node.id,
                 nodeName: node.id,
                 hostName: isLocal ? (process.env.COMPUTERNAME || process.env.HOSTNAME || 'Local') : '-',
-                diskTotal: isLocal && localDiskTotal ? localDiskTotal : '-',
-                diskFree: isLocal && localDiskFree ? localDiskFree : '-',
-                diskUsed: '-',
-                diskUsedPercent: '-',
-                diskTotalBytes: isLocal ? localTotalBytes : 0,
-                diskFreeBytes: isLocal ? localFreeBytes : 0,
-                chainDataSize: isLocal && nodeDataSize > 0 ? (nodeDataSize / (1024 * 1024)).toFixed(2) + " MB" : '-',
-                totalChainnodeSize: isLocal && nodeChainnodeSize > 0 ? (nodeChainnodeSize / (1024 * 1024)).toFixed(2) + " MB" : '-',
-                dataSizeBytes: nodeDataSize,
-                totalSizeBytes: nodeChainnodeSize,
-                updatedAt: ''
+                online: isOnline,
+                diskTotal: isOnline && isLocal && localDiskTotal ? localDiskTotal : null,
+                diskFree: isOnline && isLocal && localDiskFree ? localDiskFree : null,
+                diskUsed: null,
+                diskUsedPercent: null,
+                diskTotalBytes: isOnline && isLocal ? localTotalBytes : null,
+                diskFreeBytes: isOnline && isLocal ? localFreeBytes : null,
+                chainDataSize: isOnline && isLocal && nodeDataSize > 0 ? (nodeDataSize / (1024 * 1024)).toFixed(2) + " MB" : null,
+                totalChainnodeSize: isOnline && isLocal && nodeChainnodeSize > 0 ? (nodeChainnodeSize / (1024 * 1024)).toFixed(2) + " MB" : null,
+                dataSizeBytes: isOnline ? nodeDataSize : null,
+                totalSizeBytes: isOnline ? nodeChainnodeSize : null,
+                updatedAt: null
             });
         }
     }
@@ -581,40 +765,28 @@ const server = createServer(async (req, res) => {
         res.end(JSON.stringify(data));
     } else if (req.method === 'GET' && (cleanPath === '/api/storagesize' || cleanPath === '/app-api/api/storagesize')) {
         await handleStorageSize(req, res);
-    } else if (cleanPath.startsWith('/node1-rpc') || cleanPath.startsWith('/node-rpc')) {
-        const targetPath = fullUrl.replace(/^\/node1-rpc|^\/node-rpc/, '') || '/';
-        const n1 = NODES.find(n => n.id === 'node1') || { host: '127.0.0.1', rpcPort: 26657 };
-        proxyToHost(n1.host, n1.rpcPort, targetPath, req, res);
-    } else if (cleanPath.startsWith('/node2-rpc')) {
-        const targetPath = fullUrl.replace(/^\/node2-rpc/, '') || '/';
-        const n2 = NODES.find(n => n.id === 'node2') || { host: '127.0.0.1', rpcPort: 27657 };
-        proxyToHost(n2.host, n2.rpcPort, targetPath, req, res);
-    } else if (cleanPath.startsWith('/node3-rpc')) {
-        const targetPath = fullUrl.replace(/^\/node3-rpc/, '') || '/';
-        const n3 = NODES.find(n => n.id === 'node3') || { host: '127.0.0.1', rpcPort: 28657 };
-        proxyToHost(n3.host, n3.rpcPort, targetPath, req, res);
-    } else if (cleanPath.startsWith('/node4-rpc')) {
-        const targetPath = fullUrl.replace(/^\/node4-rpc/, '') || '/';
-        const n4 = NODES.find(n => n.id === 'node4') || { host: NODE4_HOST || '127.0.0.1', rpcPort: 29657 };
-        proxyToHost(n4.host, n4.rpcPort, targetPath, req, res);
-    } else if (cleanPath === '/node1' || cleanPath.startsWith('/node1/') || cleanPath.startsWith('/node1-api')) {
-        const targetPath = fullUrl.replace(/^\/node1(-api)?/, '') || '/';
-        const n1 = NODES.find(n => n.id === 'node1') || { host: '127.0.0.1', apiPort: 1001 };
-        proxyToHost(n1.host, n1.apiPort, targetPath, req, res);
-    } else if (cleanPath === '/node2' || cleanPath.startsWith('/node2/') || cleanPath.startsWith('/node2-api')) {
-        const targetPath = fullUrl.replace(/^\/node2(-api)?/, '') || '/';
-        const n2 = NODES.find(n => n.id === 'node2') || { host: '127.0.0.1', apiPort: 2001 };
-        proxyToHost(n2.host, n2.apiPort, targetPath, req, res);
-    } else if (cleanPath === '/node3' || cleanPath.startsWith('/node3/') || cleanPath.startsWith('/node3-api')) {
-        const targetPath = fullUrl.replace(/^\/node3(-api)?/, '') || '/';
-        const n3 = NODES.find(n => n.id === 'node3') || { host: '127.0.0.1', apiPort: 3001 };
-        proxyToHost(n3.host, n3.apiPort, targetPath, req, res);
-    } else if (cleanPath === '/node4' || cleanPath.startsWith('/node4/') || cleanPath.startsWith('/node4-api')) {
-        const targetPath = fullUrl.replace(/^\/node4(-api)?/, '') || '/';
-        const n4 = NODES.find(n => n.id === 'node4') || { host: NODE4_HOST || '127.0.0.1', apiPort: 4001 };
-        proxyToHost(n4.host, n4.apiPort, targetPath, req, res);
+    } else if (cleanPath.startsWith('/node') && (cleanPath.includes('-rpc') || cleanPath.includes('-api') || /^\/node\d+/.test(cleanPath))) {
+        // ── 動態 RPC 路由 (支援 /nodeN-rpc 以及 /node-rpc，相容任意 N 節點) ──
+        const rpcMatch = cleanPath.match(/^\/(?:node(\d+)|node)-rpc(.*)/);
+        if (rpcMatch) {
+            const nodeNum = rpcMatch[1] ? parseInt(rpcMatch[1], 10) : 1;
+            const targetNode = getNodeConfig(nodeNum);
+            const targetPath = fullUrl.replace(/^\/(?:node\d+|node)-rpc/, '') || '/';
+            proxyToHost(targetNode.host, targetNode.rpcPort, targetPath, req, res);
+            return;
+        }
+
+        // ── 動態 Web/API 路由 (支援 /nodeN, /nodeN/... 以及 /nodeN-api，相容任意 N 節點) ──
+        const apiMatch = cleanPath.match(/^\/node(\d+)(?:-api)?(\/.*)?$/);
+        if (apiMatch) {
+            const nodeNum = parseInt(apiMatch[1], 10);
+            const targetNode = getNodeConfig(nodeNum);
+            const targetPath = fullUrl.replace(/^\/node\d+(-api)?/, '') || '/';
+            proxyToHost(targetNode.host, targetNode.apiPort, targetPath, req, res);
+            return;
+        }
     } else if (cleanPath.startsWith('/status')) {
-        const n1 = NODES.find(n => n.id === 'node1') || { host: '127.0.0.1', rpcPort: 26657 };
+        const n1 = getNodeConfig(1);
         proxyToHost(n1.host, n1.rpcPort, fullUrl, req, res);
     } else if (req.method === 'GET' && cleanPath === '/nodes/status') {
         await handleNodesStatus(res);

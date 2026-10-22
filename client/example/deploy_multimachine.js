@@ -170,17 +170,44 @@ async function verifyNetworkHandshake(argNodeList, maxWaitSeconds = 20) {
     // 輪詢檢測，直到所有節點握手完成且開始出塊 (Height >= 1) 或超時
     while ((Date.now() - startTime) < maxWaitSeconds * 1000) {
         const results = await Promise.all(argNodeList.map(async (node) => {
-            // 本機節點直接連 127.0.0.1，跨機節點連其真實 IP
-            const host = (node.node_domain_or_ip === '127.0.0.1' || !node.node_domain_or_ip) ? '127.0.0.1' : node.node_domain_or_ip;
-
-            const [statusRes, netRes] = await Promise.all([
+            // 優先嘗試連線 127.0.0.1 (支援 Docker 容器映射與本機節點)，若失敗再連 node_domain_or_ip (支援跨機實體 IP)
+            let host = '127.0.0.1';
+            let [statusRes, netRes, dumpRes] = await Promise.all([
                 fetchJson(`http://${host}:${node.rpc_port}/status`),
-                fetchJson(`http://${host}:${node.rpc_port}/net_info`)
+                fetchJson(`http://${host}:${node.rpc_port}/net_info`),
+                fetchJson(`http://${host}:${node.rpc_port}/dump_consensus_state`)
             ]);
 
+            if (!statusRes.ok && node.node_domain_or_ip && node.node_domain_or_ip !== '127.0.0.1') {
+                const remoteHost = node.node_domain_or_ip;
+                const [rStatus, rNet, rDump] = await Promise.all([
+                    fetchJson(`http://${remoteHost}:${node.rpc_port}/status`),
+                    fetchJson(`http://${remoteHost}:${node.rpc_port}/net_info`),
+                    fetchJson(`http://${remoteHost}:${node.rpc_port}/dump_consensus_state`)
+                ]);
+                if (rStatus.ok) {
+                    statusRes = rStatus;
+                    netRes = rNet;
+                    dumpRes = rDump;
+                    host = remoteHost;
+                }
+            }
+
             const height = statusRes.ok ? Number(statusRes.data?.result?.sync_info?.latest_block_height || 0) : -1;
-            const nPeers = netRes.ok ? Number(netRes.data?.result?.n_peers || 0) : 0;
-            const connectedMonikers = netRes.ok ? (netRes.data?.result?.peers || []).map(p => p.node_info?.moniker || p.remote_ip) : [];
+            let nPeers = 0;
+            let connectedMonikers = [];
+            if (netRes.ok && netRes.data?.result?.n_peers !== undefined) {
+                nPeers = Number(netRes.data.result.n_peers || 0);
+                connectedMonikers = (netRes.data.result.peers || []).map(p => p.node_info?.moniker || p.remote_ip);
+            } else if (dumpRes.ok && Array.isArray(dumpRes.data?.result?.peers)) {
+                const peers = dumpRes.data.result.peers;
+                nPeers = peers.length;
+                connectedMonikers = peers.map(p => {
+                    const addr = p.node_address || '';
+                    const parts = addr.split('@');
+                    return parts.length > 1 ? parts[1] : addr;
+                });
+            }
 
             return {
                 nodeName: node.node_name,
